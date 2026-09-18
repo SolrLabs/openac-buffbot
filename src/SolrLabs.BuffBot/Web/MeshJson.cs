@@ -227,7 +227,7 @@ internal static class MeshJson
                 MeshCommandKind.Disable => "disable",
                 MeshCommandKind.Settings => "settings",
                 MeshCommandKind.Drain => "drain",
-                _ => "unwedge",
+                _ => throw new ArgumentOutOfRangeException(nameof(command)),
             },
             ["objectId"] = command.ObjectId,
         };
@@ -342,7 +342,6 @@ internal static class MeshJson
         {
             "mute" => MeshCommandKind.Mute,
             "release" => MeshCommandKind.Release,
-            "unwedge" => MeshCommandKind.Unwedge,
             "enable" => MeshCommandKind.Enable,
             "disable" => MeshCommandKind.Disable,
             "settings" => MeshCommandKind.Settings,

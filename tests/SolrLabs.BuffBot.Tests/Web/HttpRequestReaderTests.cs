@@ -20,7 +20,7 @@ public sealed class HttpRequestReaderTests
     [Fact]
     public void ParsesAPostRequestWithABody()
     {
-        const string body = "{\"kind\":\"unwedge\"}";
+        const string body = "{\"kind\":\"drain\"}";
         HttpParseResult result = Read(
             "POST /api/bots/local%2F1/commands HTTP/1.1\r\n"
             + $"Content-Length: {Encoding.UTF8.GetByteCount(body)}\r\n\r\n{body}");

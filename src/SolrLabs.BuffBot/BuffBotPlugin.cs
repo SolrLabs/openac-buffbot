@@ -178,7 +178,6 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
 
         IBrowserLauncher launcher = _host.HasUi ? new ProcessBrowserLauncher() : NullBrowserLauncher.Instance;
         _panel = new BuffBotPanelViewModel(
-            () => PerformUnwedge("operator panel"),
             setEnabled: ToggleEnabledFromPanel,
             logWarn: LogWarn, launcher: launcher, stats: _stats);
 
@@ -534,8 +533,8 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         _mesh.Publish(botId, host.Automation.Character.Name, MeshIdentity.World(world), MeshStatusMapper.From(status, SystemClock.Instance));
     }
 
-    /// <summary>Runs before <see cref="RespondToTells"/>, so Unwedge cannot race a tell answered
-    /// the same tick.</summary>
+    /// <summary>Runs before <see cref="RespondToTells"/>, so a mesh command cannot race a tell
+    /// answered the same tick.</summary>
     private void DrainMeshCommands(IPluginHost host)
     {
         if (_mesh is null)
@@ -568,10 +567,6 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
                     _stats.RecordRelease(releaseName, "web console");
                     host.Log.Info($"BuffBot released object {releaseId} via web console.");
                 }
-                break;
-
-            case MeshCommandKind.Unwedge:
-                PerformUnwedge("web console");
                 break;
 
             case MeshCommandKind.Enable:
@@ -819,12 +814,6 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
                 host.Automation.Chat.PostSystemMessage(
                     _operator.Inspect(IsEnabledForCurrentCharacter(host), _tellsAnswered));
             }
-            return;
-        }
-
-        if (string.Equals(argument, "unwedge", StringComparison.OrdinalIgnoreCase))
-        {
-            PerformUnwedge("/buffbot unwedge");
             return;
         }
 
@@ -1233,18 +1222,6 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
                 + $"{message.Sender} ({FormatId(message.SenderObjectId)}): {message.Text}");
 
         host.Automation.Chat.PostSystemMessage($"chatdump: {tail.Count} message(s) — see the log.");
-    }
-
-    private void PerformUnwedge(string source)
-    {
-        if (_host is not { } host)
-            return;
-
-        string result = _operator.Unwedge();
-        _stats.RecordUnwedge(source);
-        if (host.Automation.IsAvailable)
-            host.Automation.Chat.PostSystemMessage(result);
-        host.Log.Info($"BuffBot unwedged via {source}: {result}");
     }
 
     /// <summary>Cached per character. Default off.</summary>

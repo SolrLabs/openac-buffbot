@@ -1023,8 +1023,6 @@ footer {
           </table>
           <p class="empty" hidden>Nobody waiting.</p>
           <div class="actions" style="margin-top: 16px;">
-            <button class="primary" type="button" id="unwedge">Unwedge</button>
-            <span class="cmd-result" id="unwedge-result"></span>
             <button type="button" id="pause">Pause intake</button>
             <span class="cmd-result" id="pause-result"></span>
           </div>
@@ -2298,12 +2296,6 @@ footer {
       button.disabled = false;
     });
   }
-
-  document.getElementById("unwedge").addEventListener("click", function () {
-    var botId = botSelect.value;
-    if (!botId) return;
-    runCommand(botId, { kind: "unwedge", objectId: 0 }, this, document.getElementById("unwedge-result"));
-  });
 
   /* ── enable / disable ────────────────────────────────── */
 

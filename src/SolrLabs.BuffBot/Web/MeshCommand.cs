@@ -5,7 +5,6 @@ internal enum MeshCommandKind
 {
     Mute,
     Release,
-    Unwedge,
     Enable,
     Disable,
     Settings,
