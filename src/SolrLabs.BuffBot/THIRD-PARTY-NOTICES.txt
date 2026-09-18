@@ -1,4 +1,5 @@
-BuffBot's icon (icon.png) is the "wand" icon from Lucide (https://lucide.dev), recolored.
+BuffBot's icon (icon.png) is the "wand-sparkles" icon from Lucide (https://lucide.dev), drawn
+in white on a blue field.
 
 ISC License
 
