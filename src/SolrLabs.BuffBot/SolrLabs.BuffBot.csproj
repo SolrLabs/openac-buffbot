@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>SolrLabs.BuffBot</RootNamespace>
+    <AssemblyName>SolrLabs.BuffBot</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SolrLabs.BuffBot.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The only acdream dependency available to an external plugin. -->
+    <ProjectReference Include="$(AcDreamSource)/src/AcDream.Plugin.Abstractions/AcDream.Plugin.Abstractions.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="plugin.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="buffbot*.xml">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Web/console.html" />
+  </ItemGroup>
+</Project>

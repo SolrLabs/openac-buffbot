@@ -1,0 +1,6 @@
+{
+  "_": "Ratchet downwards only. Raising a limit needs a reason in the commit message.",
+  "maxCommentShare": 0.07,
+  "maxFileCommentShare": 0.25,
+  "maxBlockLines": 2
+}

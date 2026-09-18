@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Mirrors AcDream.Plugins.MossTank.Tests: a plain ProjectReference to the plugin
+         project. MSBuild propagates the plugin's own reference to the abstractions
+         transitively, despite its Private="false"/ExcludeAssets="runtime" metadata, so the
+         abstractions assembly still lands beside the test binaries at run time. -->
+    <ProjectReference Include="..\..\src\SolrLabs.BuffBot\SolrLabs.BuffBot.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,80 @@
+name: Release
+
+# Tag a commit to publish it: `git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1`.
+# A tag carrying a prerelease suffix (anything with a `-`) publishes as a prerelease.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      openac_ref:
+        description: OpenAC ref to build against
+        default: main
+
+permissions:
+  contents: write
+
+env:
+  OPENAC_REF: ${{ github.event.inputs.openac_ref || 'main' }}
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out BuffBot
+        uses: actions/checkout@v4
+        with:
+          path: BuffBot
+
+      - name: Check out OpenAC
+        uses: actions/checkout@v4
+        with:
+          repository: eriknihlen/OpenAC
+          ref: ${{ env.OPENAC_REF }}
+          path: OpenAC
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: BuffBot/global.json
+
+      - name: Check comments
+        working-directory: BuffBot
+        run: scripts/check-comments.py
+
+      - name: Build
+        working-directory: BuffBot
+        run: dotnet build BuffBot.slnx -c Release --nologo
+
+      - name: Test
+        working-directory: BuffBot
+        run: dotnet test BuffBot.slnx -c Release --no-build --nologo
+
+      - name: Package
+        working-directory: BuffBot
+        run: scripts/package.sh
+
+      # The tag and the manifest must agree, or the launcher offers a version the zip does not carry.
+      - name: Check the tag against plugin.json
+        working-directory: BuffBot
+        run: |
+          manifest=$(python3 -c "import json;print(json.load(open('src/SolrLabs.BuffBot/plugin.json'))['version'])")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$manifest" != "$tag" ]; then
+            echo "plugin.json says $manifest, tag says $tag" >&2
+            exit 1
+          fi
+
+      - name: Publish the release
+        working-directory: BuffBot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          openac=$(git -C ../OpenAC rev-parse --short HEAD)
+          gh release create "$GITHUB_REF_NAME" artifacts/*.zip artifacts/*.zip.sha256 \
+            --title "BuffBot $GITHUB_REF_NAME" \
+            --notes "Built against OpenAC \`$OPENAC_REF\` @ \`$openac\`. Install through the OpenAC launcher, or unzip into the client's \`plugins/solrlabs.buffbot/\`. See CHANGELOG.md." \
+            $prerelease

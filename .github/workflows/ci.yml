@@ -1,0 +1,80 @@
+name: CI
+
+# BuffBot compiles against OpenAC's plugin contract by project reference, so every build needs an
+# OpenAC checkout beside this one. `openac_ref` is what that checkout is pinned to. BuffBot needs
+# the headless plugin surface (#121), which merged after OpenAC 0.1.10 and is in no release yet, so
+# this tracks `main`. Pin it to `v0.1.11` the day that tag exists — plugin.json already declares it
+# as the minimum host version.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      openac_ref:
+        description: OpenAC ref to build against
+        default: main
+
+env:
+  OPENAC_REF: ${{ github.event.inputs.openac_ref || 'main' }}
+
+jobs:
+  build:
+    name: Build, test and package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out BuffBot
+        uses: actions/checkout@v4
+        with:
+          path: BuffBot
+
+      - name: Check out OpenAC
+        uses: actions/checkout@v4
+        with:
+          repository: eriknihlen/OpenAC
+          ref: ${{ env.OPENAC_REF }}
+          path: OpenAC
+
+      - name: Record the OpenAC commit
+        working-directory: OpenAC
+        run: |
+          echo "Built against OpenAC \`$OPENAC_REF\` @ \`$(git rev-parse --short HEAD)\`" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: BuffBot/global.json
+
+      # Comments explain code, not planning. This keeps dated narratives, internal ids and
+      # review history out of a public repository.
+      - name: Check comments
+        working-directory: BuffBot
+        run: scripts/check-comments.py
+
+      - name: Restore
+        working-directory: BuffBot
+        run: dotnet restore BuffBot.slnx
+
+      # Warnings are errors (Directory.Build.props), so a warning fails the build here.
+      - name: Build
+        working-directory: BuffBot
+        run: dotnet build BuffBot.slnx -c Release --no-restore --nologo
+
+      - name: Test
+        working-directory: BuffBot
+        run: dotnet test BuffBot.slnx -c Release --no-build --nologo
+
+      # The same script a release uses, so the launcher's content rules are checked on every run.
+      - name: Package
+        working-directory: BuffBot
+        run: scripts/package.sh
+
+      - name: Upload the plugin zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: solrlabs.buffbot
+          path: |
+            BuffBot/artifacts/*.zip
+            BuffBot/artifacts/*.zip.sha256
+          if-no-files-found: error

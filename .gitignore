@@ -1,0 +1,7 @@
+bin/
+obj/
+.vs/
+*.user
+artifacts/
+.claude/worktrees/
+scripts/__pycache__/

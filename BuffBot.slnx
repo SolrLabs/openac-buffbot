@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SolrLabs.BuffBot/SolrLabs.BuffBot.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SolrLabs.BuffBot.Tests/SolrLabs.BuffBot.Tests.csproj" />
+  </Folder>
+</Solution>

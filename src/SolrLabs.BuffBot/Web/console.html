@@ -1,0 +1,2564 @@
+<meta charset="utf-8">
+<title>BuffBot Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Chivo:wght@400;500;700&family=Chivo+Mono:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* Cyanotype. A committed single-theme identity: it paints every colour
+   explicitly and does not follow the host theme. Blueprint blue ground,
+   chalk linework, ochre and pencil-red reserved for annotation. */
+
+:root {
+  color-scheme: dark;
+
+  --bg:        #092034;
+  --surface:   #0d2b45;
+  --raised:    #14395c;
+  --sunken:    #06182a;
+  --line:      #2b5578;
+  --line-soft: #1b4067;
+
+  --ink:       #e4eef7;
+  --ink-dim:   #93b2cb;
+  --ink-faint: #6d90ae;
+
+  --accent:     #bd7d28;
+  --accent-ink: #d99742;
+  --brass:      #bd7d28;
+  --brass-ink:  #d99742;
+
+  --series-1:  #4f96d4;
+  --series-2:  #bd7d28;
+  --good:      #4f96d4;
+  --alert:     #d1584a;
+
+  --wash-1:    rgba(79, 150, 212, 0.16);
+  --wash-2:    rgba(189, 125, 40, 0.16);
+  --wash-good: rgba(79, 150, 212, 0.16);
+  --wash-alert:rgba(209, 88, 74, 0.18);
+
+  --grid:      rgba(228, 238, 247, 0.13);
+  --shadow:    none;
+  --radius:    0px;
+  --pill-r:    0px;
+
+  --sans:    "Chivo", system-ui, -apple-system, sans-serif;
+  --mono:    "Chivo Mono", ui-monospace, Menlo, monospace;
+  --display: "Chivo", system-ui, -apple-system, sans-serif;
+  --display-w: 700;
+  --display-track: -0.018em;
+}
+
+* { box-sizing: border-box; }
+
+/* An author display rule of the same specificity (a class, an id) wins a tie against a bare
+   [hidden] because it is later in the sheet — that let #now-inert and #comps show while hidden
+   (playtest defect A). !important makes the hidden attribute always win, regardless of what
+   else targets the element. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 0 56px;
+}
+
+/* ── top bar ─────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-block: 18px 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-weight: var(--display-w);
+  font-size: 22px;
+  letter-spacing: var(--display-track);
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.wordmark span {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass-ink);
+  border: 1px solid var(--brass);
+  border-radius: var(--pill-r);
+  padding: 1px 5px;
+}
+
+.topbar-spacer { flex: 1 1 auto; }
+
+.origin {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.origin b { color: var(--ink); font-weight: 500; }
+.lock {
+  width: 13px; height: 13px;
+  display: inline-block;
+  flex: none;
+  color: var(--good);
+}
+
+/* ── bot selector ────────────────────────────────────── */
+
+.bot-select {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--pill-r);
+  padding: 5px 8px;
+  cursor: pointer;
+  max-width: 220px;
+}
+.bot-select:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+
+/* ── switch ──────────────────────────────────────────── */
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch-track {
+  width: 40px; height: 22px;
+  border-radius: 11px;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background 140ms ease, border-color 140ms ease;
+  flex: none;
+}
+.switch-track::after {
+  content: "";
+  position: absolute;
+  inset: 3px auto 3px 3px;
+  width: 14px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transition: transform 140ms ease, background 140ms ease;
+}
+.switch input:checked + .switch-track {
+  background: var(--wash-good);
+  border-color: var(--good);
+}
+.switch input:checked + .switch-track::after {
+  transform: translateX(18px);
+  background: var(--good);
+}
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+.switch input:checked ~ .switch-label { color: var(--ink); }
+.switch input:disabled + .switch-track { cursor: not-allowed; }
+.switch:has(input:disabled) { cursor: not-allowed; }
+
+/* ── enable confirm popover ──────────────────────────────── */
+
+.enable-wrap { position: relative; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.enable-confirm {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 5;
+  width: 260px;
+  background: var(--raised);
+  border: 1px solid var(--brass);
+  border-radius: var(--radius);
+  padding: 12px 14px 13px;
+  box-shadow: 0 8px 24px rgba(6, 24, 42, 0.55);
+}
+.enable-confirm p {
+  margin: 0 0 11px;
+  font-size: 12.5px;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.enable-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ── tabs ────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 22px;
+}
+.tab {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0 0 10px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.tab:hover { color: var(--ink); }
+.tab:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--series-1); }
+
+/* ── connection state ────────────────────────────────── */
+
+.banner-offline {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--alert);
+  background: var(--wash-alert);
+  border: 1px solid var(--alert);
+  padding: 9px 13px;
+  margin-bottom: 14px;
+}
+#app.stale { opacity: 0.55; pointer-events: none; transition: opacity 160ms ease; }
+.auth-gate { max-width: 620px; margin: 72px auto 0; }
+.auth-gate p:last-child { margin: 10px 0 0; color: var(--ink-dim); }
+
+/* ── demo strip ──────────────────────────────────────── */
+
+
+/* ── generic section chrome ──────────────────────────── */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px 20px 20px;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.eyebrow em {
+  font-style: normal;
+  letter-spacing: 0.04em;
+  color: var(--ink-dim);
+  text-transform: none;
+  font-size: 11px;
+}
+
+/* ── the "now" band ──────────────────────────────────── */
+
+.now {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+.now > div { background: var(--surface); padding: 20px 22px 22px; }
+
+.state-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 3px 9px 3px 8px;
+  border-radius: var(--pill-r);
+  border: 1px solid;
+}
+.pill::before {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.pill.is-serving { color: var(--series-1); border-color: var(--series-1); background: var(--wash-1); }
+.pill.is-self    { color: var(--brass-ink); border-color: var(--brass); background: var(--wash-2); }
+.pill.is-idle    { color: var(--ink-dim); border-color: var(--line); background: transparent; }
+
+.step-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+.step-count b { color: var(--ink); font-weight: 500; }
+
+.casting {
+  font-family: var(--display);
+  font-size: clamp(23px, 4vw, 31px);
+  font-weight: var(--display-w);
+  line-height: 1.12;
+  letter-spacing: var(--display-track);
+  margin: 0 0 4px;
+  text-wrap: balance;
+}
+.casting-for {
+  font-size: 13px;
+  color: var(--ink-dim);
+  margin: 0 0 18px;
+}
+.casting-for b {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.now-inert {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-dim);
+  margin: 0 0 16px;
+}
+
+.bar {
+  height: 6px;
+  background: var(--sunken);
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius);
+  background: var(--series-1);
+  transition: width 420ms cubic-bezier(.4,0,.2,1);
+}
+
+.meter { margin-top: 16px; }
+.meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 6px;
+}
+.meter-head b {
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.mana-bar { height: 10px; overflow: visible; }
+.mana-bar > i { background: linear-gradient(90deg, var(--series-1), color-mix(in oklab, var(--series-1) 70%, var(--ink))); }
+.mana-bar .handle {
+  position: absolute;
+  top: -5px;
+  width: 9px;
+  height: 20px;
+  margin-left: -4.5px;
+  background: var(--accent);
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.mana-bar .handle:hover,
+.mana-bar .handle.dragging { background: var(--accent-ink); }
+.mana-bar .handle:focus-visible {
+  outline: 1px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+.window-note {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin-top: 7px;
+  letter-spacing: 0.02em;
+}
+.window-note b { color: var(--ink-dim); font-weight: 500; }
+
+/* health/stamina, docket 12: one line split 50/50, visually secondary to mana */
+.vitals-row { display: flex; gap: 18px; }
+.vitals-col { flex: 1 1 0; min-width: 0; }
+.meter-head.small { font-size: 10px; }
+.meter-head.small b { font-size: 11px; color: var(--ink-dim); }
+.bar-secondary { height: 4px; }
+.bar-secondary > i { background: var(--ink-faint); }
+
+/* counters */
+.counters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  margin: 0;
+}
+.counters div {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 9px;
+}
+.counters dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.counters dd {
+  margin: 1px 0 0;
+  font-family: var(--mono);
+  font-size: 21px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.counters dd.warn { color: var(--alert); }
+
+/* ── headline tiles ──────────────────────────────────── */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 26px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px 15px;
+}
+.tile h3 {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 8px;
+}
+.tile p {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: var(--display-w);
+  line-height: 1;
+  letter-spacing: var(--display-track);
+  font-variant-numeric: tabular-nums;
+}
+.tile p small {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--ink-dim);
+  margin-left: 3px;
+}
+.tile .trend {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin-top: 7px;
+  display: block;
+}
+
+/* ── two-column body ─────────────────────────────────── */
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 14px;
+}
+.stack { display: grid; gap: 14px; }
+
+/* ── tables ──────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+thead th {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-align: left;
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--line);
+}
+tbody td {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: 0; }
+th.num, td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.who { font-weight: 500; }
+.asked {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--pill-r);
+  padding: 1px 6px;
+}
+.since { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+.empty {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  padding: 14px 0 4px;
+}
+
+/* ── buttons ─────────────────────────────────────────── */
+
+button {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--pill-r);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+button:hover { color: var(--ink); border-color: var(--ink-faint); }
+button:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+button.danger:hover { color: var(--alert); border-color: var(--alert); background: var(--wash-alert); }
+button.primary {
+  color: var(--brass-ink);
+  border-color: var(--brass);
+  background: var(--wash-2);
+}
+button.primary:hover { color: var(--brass-ink); border-color: var(--brass-ink); }
+button[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+.cmd-result {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 4px;
+  white-space: normal;
+  max-width: 190px;
+}
+.cmd-result.err { color: var(--alert); }
+
+.sample-chip {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass-ink);
+  border: 1px solid var(--brass);
+  border-radius: var(--pill-r);
+  padding: 1px 5px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+/* ── charts ──────────────────────────────────────────── */
+
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.chart text { font-family: var(--mono); fill: var(--ink-faint); font-size: 10px; }
+.chart .axis-val { font-size: 9.5px; }
+.chart .bar-label { fill: var(--ink-dim); font-size: 10.5px; }
+.chart .bar-value { fill: var(--ink); font-size: 10.5px; font-weight: 500; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart .hit { fill: transparent; cursor: crosshair; }
+.chart .col-hi { fill: var(--ink); opacity: 0; }
+.chart g.on .col-hi { opacity: 0.05; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin-top: 12px;
+}
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 9px; height: 9px; border-radius: 1px; display: inline-block; }
+
+#tip {
+  position: fixed;
+  z-index: 20;
+  pointer-events: none;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+#tip.on { opacity: 1; }
+#tip b { color: var(--ink); font-weight: 600; }
+#tip u { text-decoration: none; color: var(--ink-dim); }
+#tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 1px; margin-right: 5px; }
+
+/* ── components ──────────────────────────────────────── */
+
+.comps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 30px; }
+.comp {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.comp-name { font-size: 13px; }
+.comp-count { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.comp-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  background: var(--sunken);
+  border-radius: var(--pill-r);
+  position: relative;
+  margin-top: 4px;
+}
+.comp-bar > i { display: block; height: 100%; border-radius: var(--pill-r); background: var(--series-1); }
+.comp-bar .low-mark { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--ink-faint); }
+.comp.low .comp-bar > i { background: var(--alert); }
+.comp.low .comp-count { color: var(--alert); }
+.comp-note {
+  grid-column: 1 / -1;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin-top: 5px;
+}
+.comp.low .comp-note { color: var(--alert); }
+
+/* ── contributors ─────────────────────────────────────── */
+
+.contributors { display: flex; flex-direction: column; }
+.contributor { border-bottom: 1px solid var(--line-soft); }
+.contributor:last-child { border-bottom: 0; }
+.contributor-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 11px 2px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+}
+.contributor-toggle:hover { background: var(--wash-1); }
+.contributor-toggle:focus-visible { outline: 2px solid var(--series-1); outline-offset: -2px; }
+.contributor-name { display: flex; align-items: center; gap: 8px; }
+.contributor-chevron {
+  display: inline-block;
+  width: 10px;
+  font-style: normal;
+  color: var(--ink-faint);
+  transition: transform 120ms ease;
+}
+.contributor-chevron::before { content: "\25B8"; }
+.contributor-toggle[aria-expanded="true"] .contributor-chevron { transform: rotate(90deg); }
+.contributor-count { font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.contributor-body { padding: 0 2px 14px; }
+.contributor-body table { font-size: 12.5px; }
+/* Item takes the slack; count and date get fixed columns so a right-aligned
+   count never butts up against the date beside it. */
+.contributor-body th.num, .contributor-body td.num { width: 84px; padding-right: 20px; }
+.contributor-body th:last-child, .contributor-body td:last-child { width: 180px; }
+
+/* ── controls ────────────────────────────────────────── */
+
+.controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 26px 36px; }
+.field { border-top: 1px solid var(--line-soft); padding-top: 12px; }
+/* :not(.switch) so a switch label in a field (the two Controls-section toggles) keeps the
+   .switch rule's own inline-flex layout instead of collapsing to block, which overlapped its
+   track on the label text (playtest defect B) — the top-bar Enabled switch was never inside a
+   .field and so never hit this. */
+.field > label:not(.switch), .field > span.lbl {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 9px;
+}
+.field p {
+  margin: 9px 0 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+  max-width: 46ch;
+}
+
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: var(--pill-r); overflow: hidden; }
+.segmented button {
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  padding: 6px 14px;
+  background: transparent;
+}
+.segmented button:last-child { border-right: 0; }
+.segmented button[aria-pressed="true"] { background: var(--wash-1); color: var(--series-1); }
+.segmented button[disabled]:hover { color: var(--ink-dim); border-color: var(--line); }
+
+.rangerow { display: flex; align-items: center; gap: 14px; }
+input[type="range"] { flex: 1 1 auto; accent-color: var(--series-1); min-width: 0; }
+.rangeval { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; min-width: 7ch; text-align: right; }
+
+.field select, .field input[type="number"] {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--pill-r);
+  padding: 5px 8px;
+}
+.field select { cursor: pointer; }
+.field select:focus-visible, .field input[type="number"]:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+
+.actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+.phase2 {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass-ink);
+  border: 1px solid var(--brass);
+  border-radius: var(--pill-r);
+  padding: 1px 5px;
+  margin-left: 8px;
+  vertical-align: 2px;
+}
+
+/* ── log ─────────────────────────────────────────────── */
+
+.log {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.75;
+  margin: 0;
+  max-height: 190px;
+  overflow-y: auto;
+}
+.log div { display: flex; gap: 12px; }
+.log time { color: var(--ink-faint); flex: none; font-variant-numeric: tabular-nums; }
+.log .ok { color: var(--ink-dim); }
+.log .ok b { color: var(--ink); font-weight: 400; }
+.log .bad { color: var(--alert); }
+.log .note { color: var(--brass-ink); }
+
+footer {
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  display: flex;
+  gap: 8px 20px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+@media (max-width: 940px) {
+  .now { grid-template-columns: minmax(0, 1fr); }
+  .columns { grid-template-columns: minmax(0, 1fr); }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .comps { grid-template-columns: minmax(0, 1fr); }
+  .controls { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .tiles { grid-template-columns: minmax(0, 1fr); }
+  .counters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topbar { gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+}
+</style>
+
+<div class="shell">
+
+  <div id="offline-banner" class="banner-offline" hidden role="status">Hub unreachable — retrying…</div>
+
+  <div id="auth-gate" class="panel auth-gate" hidden>
+    <p class="eyebrow">Access needed</p>
+    <p id="auth-gate-msg">This page needs the link from the client log — it carries the access token.</p>
+  </div>
+
+  <div id="app">
+
+    <header class="topbar">
+      <h1 class="wordmark">BuffBot <span>console</span></h1>
+      <div class="topbar-spacer"></div>
+      <select id="bot" class="bot-select" aria-label="Bot" hidden></select>
+      <div class="origin">
+        <svg class="lock" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.5 7V5a3.5 3.5 0 1 1 7 0v2H12a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h.5Zm1.5 0h4V5a2 2 0 1 0-4 0v2Z"/></svg>
+        <span id="origin-text">127.0.0.1</span>
+      </div>
+      <div class="enable-wrap">
+        <label class="switch" for="enable">
+          <input type="checkbox" id="enable" title="Enable or disable this bot">
+          <span class="switch-track"></span>
+          <span class="switch-label">Enabled</span>
+        </label>
+        <span class="cmd-result" id="enable-result"></span>
+        <div class="enable-confirm" id="enable-confirm" role="dialog" aria-label="Confirm enable" hidden>
+          <p id="enable-confirm-text"></p>
+          <div class="enable-confirm-actions">
+            <button type="button" id="enable-confirm-no">Cancel</button>
+            <button type="button" class="primary" id="enable-confirm-yes">Enable</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="tabs" role="tablist" aria-label="Console sections">
+      <button type="button" class="tab" role="tab" id="tab-live" aria-controls="panel-live" aria-selected="true">Live</button>
+      <button type="button" class="tab" role="tab" id="tab-components" aria-controls="panel-components" aria-selected="false" tabindex="-1">Components</button>
+      <button type="button" class="tab" role="tab" id="tab-contributors" aria-controls="panel-contributors" aria-selected="false" tabindex="-1">Contributors</button>
+      <button type="button" class="tab" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
+    </div>
+
+    <div id="panel-live" role="tabpanel" aria-labelledby="tab-live" tabindex="0">
+
+    <section class="now" aria-label="Current activity">
+      <div>
+        <div class="state-row">
+          <span class="pill is-idle" id="state-pill">Idle</span>
+          <span class="step-count" id="step-count" hidden>step <b id="step-i">0</b> of <b id="step-n">0</b></span>
+        </div>
+        <p class="now-inert" id="now-inert" hidden>
+          <span>Not answering tells from other players.</span>
+          <button type="button" class="primary" id="now-inert-enable">Enable</button>
+        </p>
+        <h2 class="casting" id="spell-line">—</h2>
+        <p class="casting-for" id="casting-for" hidden>
+          for <b id="requester">—</b>
+        </p>
+
+        <div class="bar" id="step-bar-wrap" hidden><i id="step-bar" style="width: 0%"></i></div>
+
+        <div class="meter">
+          <div class="meter-head">
+            <span>Mana</span>
+            <b><span id="mana-cur">0</span> / <span id="mana-max">0</span></b>
+          </div>
+          <div class="bar mana-bar" id="mana-bar-wrap">
+            <i id="mana-bar" style="width: 0%"></i>
+            <span class="handle" id="mana-handle-low" style="left: 20%"
+                  tabindex="0" role="slider" aria-label="Mana bounce low mark"
+                  aria-valuemin="5" aria-valuemax="60" aria-valuenow="20"></span>
+            <span class="handle" id="mana-handle-high" style="left: 80%"
+                  tabindex="0" role="slider" aria-label="Mana bounce high mark"
+                  aria-valuemin="40" aria-valuemax="100" aria-valuenow="80"></span>
+          </div>
+          <p class="window-note">
+            Bounce window <b id="window-low">20</b>% / <b id="window-high">80</b>% — Stamina to
+            Mana Self below the low mark, back to casting above the high one. Drag the marks to
+            change it. <span class="cmd-result" id="mana-bounce-result"></span>
+          </p>
+        </div>
+
+        <div class="meter vitals-row">
+          <div class="vitals-col">
+            <div class="meter-head small">
+              <span>Health</span>
+              <b><span id="health-cur">—</span> / <span id="health-max">—</span></b>
+            </div>
+            <div class="bar bar-secondary"><i id="health-bar" style="width: 0%"></i></div>
+          </div>
+          <div class="vitals-col">
+            <div class="meter-head small">
+              <span>Stamina</span>
+              <b><span id="stamina-cur">—</span> / <span id="stamina-max">—</span></b>
+            </div>
+            <div class="bar bar-secondary"><i id="stamina-bar" style="width: 0%"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="eyebrow" style="margin-bottom: 16px;">Since plugin start</p>
+        <dl class="counters">
+          <div><dt>Tells answered</dt><dd id="count-tells">0</dd></div>
+          <div><dt>Casts landed</dt><dd id="count-casts">0</dd></div>
+          <div><dt>Fizzles</dt><dd class="warn" id="count-fizzles">0</dd></div>
+          <div><dt>Mana bounces</dt><dd id="count-bounces">0</dd></div>
+          <div><dt>Tier step-downs</dt><dd id="count-tierdown">0</dd></div>
+          <div><dt>Refused</dt><dd id="count-refused" title="">0</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="panel" id="now-empty" aria-label="No bots" hidden>
+      <p class="eyebrow">Now</p>
+      <p class="empty">No bots are reporting to this hub.</p>
+    </section>
+
+    <section class="tiles" aria-label="Headline figures">
+      <div class="tile">
+        <h3>Players served since plugin start</h3>
+        <p id="tile-players-value">—</p>
+        <span class="trend" id="tile-players-trend"></span>
+      </div>
+      <div class="tile">
+        <h3>Casts landed since plugin start</h3>
+        <p id="tile-casts-value">—</p>
+        <span class="trend" id="tile-casts-trend"></span>
+      </div>
+      <div class="tile">
+        <h3>Fizzle rate</h3>
+        <p><span id="tile-fizzle-value">—</span><small id="tile-fizzle-pct" hidden>%</small></p>
+        <span class="trend" id="tile-fizzle-trend"></span>
+      </div>
+      <div class="tile">
+        <h3>Median wait</h3>
+        <p id="tile-wait-value">—</p>
+        <span class="trend" id="tile-wait-trend"></span>
+      </div>
+    </section>
+
+    <div class="columns">
+
+      <div class="stack">
+        <section class="panel">
+          <p class="eyebrow">Waiting <em id="queue-count">0 waiting</em></p>
+          <table id="queue">
+            <thead>
+              <tr><th>Requester</th><th>Archetype</th><th class="num">Waiting</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <p class="empty" hidden>Nobody waiting.</p>
+          <div class="actions" style="margin-top: 16px;">
+            <button type="button" id="pause">Pause intake</button>
+            <span class="cmd-result" id="pause-result"></span>
+          </div>
+        </section>
+
+        <section class="panel">
+          <p class="eyebrow">Recent <em>server-confirmed lines only</em></p>
+          <div class="log" id="log"></div>
+          <p class="empty" id="log-empty" hidden>Nothing yet.</p>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="panel">
+          <p class="eyebrow">Casts per hour <em>last 12 hours, since plugin start</em></p>
+          <svg class="chart" id="hours" viewBox="0 0 600 210" role="img" aria-label="Stacked column chart of casts per hour over the last twelve hours, split between requested buffs and self-buff upkeep, with a red bar beside each column for that hour's fizzle count."></svg>
+          <div class="legend">
+            <span><i style="background: var(--series-1)"></i> Requested</span>
+            <span><i style="background: var(--series-2)"></i> Self-buff upkeep</span>
+            <span><i style="background: var(--alert)"></i> Fizzles</span>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    </div><!-- /#panel-live -->
+
+    <div id="panel-components" role="tabpanel" aria-labelledby="tab-components" tabindex="0" hidden>
+    <section class="panel" style="margin-bottom: 14px;">
+      <p class="eyebrow">Components <em>stock / low-stock mark</em></p>
+      <div class="comps" id="comps"></div>
+      <p class="empty" id="comps-empty" hidden>Nothing needed by the resolved profile, and nothing held.</p>
+      <p class="empty" id="comps-unavailable" hidden>Inventory isn't available on this host.</p>
+      <p class="empty" id="comps-catalog-unavailable" hidden>Component names aren't available on this host: the headless client doesn't load the magic catalog.</p>
+    </section>
+    </div><!-- /#panel-components -->
+
+    <div id="panel-contributors" role="tabpanel" aria-labelledby="tab-contributors" tabindex="0" hidden>
+    <section class="panel" style="margin-bottom: 14px;">
+      <p class="eyebrow">Contributors <em>trade donations, most recent first</em></p>
+      <div class="contributors" id="contributors"></div>
+      <p class="empty" id="contributors-empty" hidden>No donations have been recorded yet.</p>
+      <p class="empty" id="contributors-unavailable" hidden>Contributors aren't available right now.</p>
+    </section>
+    </div><!-- /#panel-contributors -->
+
+    <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" hidden>
+    <section class="panel">
+      <p class="eyebrow">Controls <em>every write goes through the same command layer as the tells</em></p>
+      <div class="controls">
+
+        <div class="field">
+          <span class="lbl">Access policy <span class="phase2">coming soon</span></span>
+          <div class="segmented" role="group" aria-label="Access policy">
+            <button type="button" aria-pressed="true" data-mode="free">Free</button>
+            <button type="button" aria-pressed="false" data-mode="paid" disabled>Paid</button>
+            <button type="button" aria-pressed="false" data-mode="fellowship" disabled>Fellowship</button>
+          </div>
+          <p>Paid and fellowship exist in the design and not yet in the build, so they are shown disabled rather than hidden — the seam is real, the modes are not.</p>
+        </div>
+
+        <div class="field">
+          <label for="target-tier">Target tier</label>
+          <select id="target-tier">
+            <option value="">Top learned</option>
+            <option value="1">I</option>
+            <option value="2">II</option>
+            <option value="3">III</option>
+            <option value="4">IV</option>
+            <option value="5">V</option>
+            <option value="6">VI</option>
+            <option value="7">VII</option>
+            <option value="8">Incantation</option>
+          </select>
+          <span class="cmd-result" id="target-tier-result"></span>
+          <p>What a player request casts toward. Self-buff upkeep always keeps the top learned tier regardless of this setting.</p>
+        </div>
+
+        <div class="field">
+          <span class="lbl">Buff tier fallback</span>
+          <label class="switch" for="tier-fallback">
+            <input type="checkbox" id="tier-fallback" checked>
+            <span class="switch-track"></span>
+            <span class="switch-label">Step down on a fizzle or an empty purse</span>
+          </label>
+          <span class="cmd-result" id="tier-fallback-result"></span>
+          <p>Off casts the target tier only: an unaffordable spell bounces rather than stepping down, and a spell is skipped after too many fizzles instead of retrying forever.</p>
+        </div>
+
+        <div class="field">
+          <label for="fizzle-skip">Fizzles before skipping</label>
+          <div class="rangerow">
+            <input type="range" id="fizzle-skip" min="1" max="20" step="1" value="6">
+            <span class="rangeval" id="fizzle-skip-val">6</span>
+          </div>
+          <span class="cmd-result" id="fizzle-skip-result"></span>
+          <p>This many consecutive fizzles on one line skips it instead of retrying it forever — the bound applies whether fallback is on or off.</p>
+        </div>
+
+        <div class="field">
+          <span class="lbl">Idle self-buff upkeep</span>
+          <label class="switch" for="selfbuff">
+            <input type="checkbox" id="selfbuff" checked>
+            <span class="switch-track"></span>
+            <span class="switch-label">Run when the queue is empty</span>
+          </label>
+          <span class="cmd-result" id="selfbuff-result"></span>
+          <p>Masteries, Focus, Willpower and the three regeneration lines. Armor and the protections are a separate set, off by default for a bot parked in town.</p>
+        </div>
+
+        <div class="field">
+          <span class="lbl">Split peas</span>
+          <label class="switch" for="splitpeas">
+            <input type="checkbox" id="splitpeas" checked>
+            <span class="switch-track"></span>
+            <span class="switch-label">Top up reagents below the low-stock mark from held peas</span>
+          </label>
+          <span class="cmd-result" id="splitpeas-result"></span>
+          <p>Uses a held Splitting Tool on a held pea, one at a time, whenever a reagent a resolved spell needs is below the low-stock mark below, and once more mid-run if a spell is refused for missing components.</p>
+        </div>
+
+        <div class="field">
+          <label for="range">Refusal range</label>
+          <div class="rangerow">
+            <input type="range" id="range" min="40" max="75" step="0.5" value="67.5">
+            <span class="rangeval" id="range-val">67.5 m</span>
+          </div>
+          <span class="cmd-result" id="range-result"></span>
+          <p>90% of the server's own 75 m cast range, clamped 40-75. The buffer is for a requester drifting out between the ask and the cast.</p>
+        </div>
+
+        <div class="field">
+          <label for="rate">Replies per sender</label>
+          <div class="rangerow">
+            <input type="range" id="rate" min="2" max="20" step="1" value="12">
+            <span class="rangeval" id="rate-val">12 / 60s</span>
+          </div>
+          <span class="cmd-result" id="rate-result"></span>
+          <p>The flood guard, clamped 2-20. Above this a sender is rate-limited; three identical replies in 30 seconds trips the circuit breaker instead.</p>
+        </div>
+
+        <div class="field">
+          <label for="low-stock">Component low-stock mark</label>
+          <input type="number" id="low-stock" min="0" max="10000" step="1" value="25">
+          <span class="cmd-result" id="low-stock-result"></span>
+          <p>Below this stock, a reagent's bar in the Components panel above shows in the warning colour. Clamped 0-10000; console-side only, nothing server-side reads it.</p>
+        </div>
+
+        <div class="field">
+          <span class="lbl">Vocabulary <span class="sample-chip">Sample</span></span>
+          <div class="actions">
+            <button type="button">Reload phrase table</button>
+            <button type="button">Export profile</button>
+          </div>
+          <p>The phrase table is data, not code — reloading it re-reads the file without restarting the plugin.</p>
+        </div>
+
+        <div class="field">
+          <span class="lbl">Session</span>
+          <div class="actions">
+            <button class="danger" type="button" id="drain">Drain queue</button>
+            <span class="cmd-result" id="drain-result"></span>
+          </div>
+          <p>Removes everyone waiting and tells each one once the queue was cleared. Never touches the run in flight or any mute.</p>
+        </div>
+
+      </div>
+    </section>
+    </div><!-- /#panel-settings -->
+
+    <footer>
+      <span>BuffBot operator console</span>
+      <span>Bound to loopback</span>
+    </footer>
+  </div>
+</div>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var TOKEN_KEY = "buffbot.console.token";
+  var BOT_KEY = "buffbot.console.botId";
+  var TAB_KEY = "buffbot.console.tab";
+
+  /* ── tabs ────────────────────────────────────────────── */
+
+  // Three pages, one poll: switching tabs only ever toggles which panel is hidden -- render()
+  // below always updates every panel's DOM regardless of which one is visible, so a hidden tab's
+  // data stays current for whenever it is opened next (console-tabs brief).
+  (function initTabs() {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+    if (tabs.length === 0) return;
+    var panelOf = {};
+    tabs.forEach(function (t) { panelOf[t.id] = document.getElementById(t.getAttribute("aria-controls")); });
+
+    function storedTab() {
+      try { return localStorage.getItem(TAB_KEY); } catch (e) { return null; }
+    }
+    function storeTab(id) {
+      try { localStorage.setItem(TAB_KEY, id); } catch (e) { /* ignore */ }
+    }
+
+    function selectTab(id, moveFocus) {
+      tabs.forEach(function (t) {
+        var selected = t.id === id;
+        t.setAttribute("aria-selected", String(selected));
+        t.tabIndex = selected ? 0 : -1;
+        panelOf[t.id].hidden = !selected;
+      });
+      storeTab(id);
+      if (moveFocus) {
+        var el = document.getElementById(id);
+        if (el) el.focus();
+      }
+    }
+
+    tabs.forEach(function (t, i) {
+      t.addEventListener("click", function () { selectTab(t.id, false); });
+      t.addEventListener("keydown", function (ev) {
+        var next = null;
+        if (ev.key === "ArrowRight" || ev.key === "ArrowDown") next = tabs[(i + 1) % tabs.length];
+        else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") next = tabs[(i - 1 + tabs.length) % tabs.length];
+        else if (ev.key === "Home") next = tabs[0];
+        else if (ev.key === "End") next = tabs[tabs.length - 1];
+        if (next) { ev.preventDefault(); selectTab(next.id, true); }
+      });
+    });
+
+    var initial = storedTab();
+    selectTab(initial && panelOf[initial] ? initial : tabs[0].id, false);
+  })();
+
+  var tip = document.getElementById("tip");
+
+  function showTip(html, evt) {
+    tip.innerHTML = html;
+    tip.classList.add("on");
+    moveTip(evt);
+  }
+  function moveTip(evt) {
+    var pad = 14;
+    var r = tip.getBoundingClientRect();
+    var x = evt.clientX + pad;
+    var y = evt.clientY - r.height - 10;
+    if (x + r.width > window.innerWidth - 8) x = evt.clientX - r.width - pad;
+    if (y < 8) y = evt.clientY + pad;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  function hideTip() { tip.classList.remove("on"); }
+
+  var SVGNS = "http://www.w3.org/2000/svg";
+  function el(name, attrs) {
+    var n = document.createElementNS(SVGNS, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function commas(n) { return Number(n || 0).toLocaleString("en-US"); }
+  function mmss(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }
+  function hhmmss(date) {
+    return String(date.getHours()).padStart(2, "0") + ":" +
+      String(date.getMinutes()).padStart(2, "0") + ":" +
+      String(date.getSeconds()).padStart(2, "0");
+  }
+  // The stored moment is always UTC (ContributorLedger's own remarks) -- Date parses that and
+  // getDate()/getHours()/etc. below read it back in the viewer's own local time for free.
+  // Stored UTC, shown in the viewer's own zone and locale.
+  var DATE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+    day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
+  });
+
+  function localDateTime(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return DATE_TIME_FORMAT.format(d);
+  }
+
+  function localDateTimeTitle(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    var zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" }) +
+      (zone ? " (" + zone + ")" : "");
+  }
+
+  /* ── chart scaling ──────────────────────────────────── */
+
+  // Rounds up to a "nice" bound (1/2/4/5/10 × a power of ten) so gridlines land on tidy values
+  // no matter what the underlying counts are.
+  function niceCeil(v) {
+    if (v <= 0) return 4;
+    var pow = Math.pow(10, Math.floor(Math.log10(v)));
+    var n = v / pow;
+    var niceN = n <= 1 ? 1 : n <= 2 ? 2 : n <= 4 ? 4 : n <= 5 ? 5 : 10;
+    return niceN * pow;
+  }
+
+  function hourLabel(date) { return String(date.getHours()).padStart(2, "0") + ":00"; }
+
+  /* ── hourly stacked columns ──────────────────────────── */
+
+  var hoursSignature = "";
+
+  function drawHours(hours, startedUtc) {
+    hours = hours || [];
+    var sig = (startedUtc || "") + "|" + hours.map(function (h) {
+      return h.hourStartUtc + "," + h.requested + "," + h.upkeep + "," + h.fizzles;
+    }).join(";");
+    if (sig === hoursSignature) return;
+    hoursSignature = sig;
+
+    var svg = document.getElementById("hours");
+    svg.textContent = "";
+    if (hours.length === 0) return;
+
+    var started = startedUtc ? new Date(startedUtc) : null;
+    var L = 36, R = 594, T = 10, B = 172;
+    var rawMax = 0;
+    hours.forEach(function (h) {
+      rawMax = Math.max(rawMax, (h.requested || 0) + (h.upkeep || 0), h.fizzles || 0);
+    });
+    var maxY = niceCeil(rawMax);
+    var yOf = function (v) { return B - (v / maxY) * (B - T); };
+    var slot = (R - L) / hours.length;
+    // Two bars share the slot: the existing requested/upkeep column plus a narrower fizzle bar
+    // beside it, both against the same y-scale (console-tabs brief, item 3) -- side by side
+    // rather than stacked, because a fizzle is not a landed cast and stacking it into the same
+    // column would read as though it were part of the hour's total. Sized to still read clearly
+    // at 12 columns: narrowing the cast column from 28 to 22 leaves enough room for a 9px fizzle
+    // bar and a gap without either one crowding its neighbour.
+    var bw = Math.min(22, slot - 16);
+    var fbw = Math.max(4, Math.min(9, slot - bw - 12));
+    var groupW = bw + 3 + fbw;
+
+    [0, maxY / 3, (2 * maxY) / 3, maxY].forEach(function (v) {
+      svg.appendChild(el("line", { class: "gridline", x1: L, x2: R, y1: yOf(v), y2: yOf(v) }));
+      var t = el("text", { class: "axis-val", x: L - 8, y: yOf(v) + 3.5, "text-anchor": "end" });
+      t.textContent = Math.round(v);
+      svg.appendChild(t);
+    });
+
+    hours.forEach(function (h, i) {
+      var cx = L + slot * i + slot / 2;
+      var g = el("g", {});
+      g.appendChild(el("rect", { class: "col-hi", x: cx - slot / 2 + 1, y: T - 4, width: slot - 2, height: B - T + 8, rx: 2 }));
+
+      var hourStart = new Date(h.hourStartUtc);
+      var label = hourLabel(hourStart);
+      var before = started && (hourStart.getTime() + 3600000) <= started.getTime();
+      var requested = h.requested || 0, upkeep = h.upkeep || 0, fizzles = h.fizzles || 0;
+      var mainX = cx - groupW / 2;
+      var fizzleX = mainX + bw + 3;
+
+      if (before) {
+        g.appendChild(el("rect", { x: mainX, y: B - 2, width: bw, height: 2, rx: 1, fill: "var(--ink-faint)", opacity: 0.4 }));
+      } else {
+        var yTop = yOf(requested);
+        g.appendChild(el("rect", { x: mainX, y: yTop, width: bw, height: B - yTop, rx: 2, fill: "var(--series-1)" }));
+        var selfH = (upkeep / maxY) * (B - T);
+        var ySelf = yTop - selfH - 2;
+        g.appendChild(el("rect", { x: mainX, y: ySelf, width: bw, height: selfH, rx: 2, fill: "var(--series-2)" }));
+
+        var fizzleH = (fizzles / maxY) * (B - T);
+        if (fizzleH > 0)
+          g.appendChild(el("rect", { x: fizzleX, y: B - fizzleH, width: fbw, height: fizzleH, rx: 1, fill: "var(--alert)" }));
+      }
+
+      var lab = el("text", { x: cx, y: B + 16, "text-anchor": "middle" });
+      lab.textContent = label;
+      g.appendChild(lab);
+
+      var hit = el("rect", { class: "hit", x: cx - slot / 2, y: T - 6, width: slot, height: B - T + 28 });
+      g.appendChild(hit);
+
+      var html = before
+        ? "<b>" + label + "</b><br><u>before plugin start</u>"
+        : "<b>" + label + "</b><br>" +
+          '<span class="sw" style="background: var(--series-1)"></span>' + requested + " requested<br>" +
+          '<span class="sw" style="background: var(--series-2)"></span>' + upkeep + " self-buff<br>" +
+          '<span class="sw" style="background: var(--alert)"></span>' + fizzles + " fizzled<br>" +
+          "<u>" + (requested + upkeep) + " casts total</u>";
+      hit.addEventListener("mouseenter", function (e) { g.classList.add("on"); showTip(html, e); });
+      hit.addEventListener("mousemove", moveTip);
+      hit.addEventListener("mouseleave", function () { g.classList.remove("on"); hideTip(); });
+
+      svg.appendChild(g);
+    });
+
+    svg.appendChild(el("line", { class: "gridline", x1: L, x2: R, y1: B, y2: B }));
+  }
+
+  /* ── components ─────────────────────────────────────── */
+
+  // Fixed display order (console-tabs brief, item 4): the Prismatic Taper and Mana Scarab lead,
+  // then every scarab paired with its matching pea, strongest metal first. Ordered by name in a
+  // literal table here rather than by weenie class id -- a Pea has no weenie id of its own among
+  // this codebase's reagent facts (CastingReagents matches a Pea by name only, not id), so a name
+  // table is the one ordering both halves of every pair actually share. The two-column grid
+  // (.comps) flows left to right, top to bottom, so this flat list is already the row-major
+  // layout the brief lays out.
+  var COMPONENT_SLOT_ORDER = [
+    "Prismatic Taper", "Mana Scarab",
+    "Platinum Scarab", "Prismatic Pea",
+    "Pyreal Scarab", "Pyreal Pea",
+    "Gold Scarab", "Gold Pea",
+    "Silver Scarab", "Silver Pea",
+    "Copper Scarab", "Copper Pea",
+    "Iron Scarab", "Iron Pea",
+    "Lead Scarab", "Lead Pea",
+  ];
+
+  // Renders the selected bot's status.components (console-controls brief, unit 4; reordered into
+  // the fixed grid above, console-tabs brief item 4). Every canonical slot always renders --
+  // zero stock, not held -- when the hub sent nothing for it, so the grid never reshuffles as
+  // stock changes. Anything the hub reports that is not one of those names (a Diamond Scarab,
+  // say) is appended afterward in a trailing row rather than dropped. Bars are against the
+  // low-stock mark (settings.componentLowStock) rather than any per-component scale the hub does
+  // not send. Low-stock is a visual flag only; a held-but-unused reagent (usedBy 0) still gets a
+  // row so a zero-stock gap is never hidden.
+  function renderComps(components, lowStockMark) {
+    var host = document.getElementById("comps");
+    var empty = document.getElementById("comps-empty");
+    var unavailable = document.getElementById("comps-unavailable");
+    var catalogUnavailable = document.getElementById("comps-catalog-unavailable");
+    host.innerHTML = "";
+
+    if (!components || components.available === false) {
+      host.hidden = true;
+      empty.hidden = true;
+      catalogUnavailable.hidden = true;
+      unavailable.hidden = false;
+      return;
+    }
+    unavailable.hidden = true;
+
+    // Playtest defect D: ids exist but the magic catalog resolved none of them (the headless
+    // host never binds one) — a distinct "can't say" from the genuine "nothing needed" below.
+    if (components.catalog === false) {
+      host.hidden = true;
+      empty.hidden = true;
+      catalogUnavailable.hidden = false;
+      return;
+    }
+    catalogUnavailable.hidden = true;
+    empty.hidden = true;
+    host.hidden = false;
+
+    var items = components.items || [];
+    var byName = {};
+    items.forEach(function (c) { byName[c.name] = c; });
+
+    var rows = COMPONENT_SLOT_ORDER.map(function (name) {
+      var c = byName[name];
+      return c ? { c: c, held: true } : { c: { name: name, stock: 0, usedBy: 0 }, held: false };
+    });
+    items.forEach(function (c) {
+      if (COMPONENT_SLOT_ORDER.indexOf(c.name) === -1) rows.push({ c: c, held: true });
+    });
+
+    rows.forEach(function (entry) {
+      var c = entry.c;
+      var low = c.stock < lowStockMark;
+      var scale = Math.max(c.stock, lowStockMark * 2, 1);
+      var row = document.createElement("div");
+      row.className = "comp" + (low ? " low" : "");
+      row.innerHTML =
+        '<span class="comp-name">' + c.name + "</span>" +
+        '<span class="comp-count">' + commas(c.stock) + " / " + commas(lowStockMark) + "</span>" +
+        '<span class="comp-bar"><i style="width: ' + Math.min(100, (c.stock / scale) * 100).toFixed(1) + '%"></i>' +
+        '<span class="low-mark" style="left: ' + Math.min(100, (lowStockMark / scale) * 100).toFixed(1) + '%"></span></span>' +
+        '<span class="comp-note">' + (low
+          ? "below the low-stock mark"
+          : !entry.held
+            ? "not held"
+            : c.usedBy === 0
+              ? "held, not used by the resolved profile"
+              : "used by " + c.usedBy + (c.usedBy === 1 ? " spell" : " spells")) + "</span>";
+      host.appendChild(row);
+    });
+  }
+
+  /* ── contributors ────────────────────────────────────── */
+
+  // Which donors are expanded right now, by donorObjectId (trade-donations brief, U2b) -- kept
+  // outside render so a poll that rebuilds the rows (a fresh donation, a reorder) never collapses
+  // one the operator opened. Accordion rows start closed by default -- nothing seeds this set.
+  var openContributors = {};
+
+  function renderContributors(contributors) {
+    var host = document.getElementById("contributors");
+    var empty = document.getElementById("contributors-empty");
+    var unavailable = document.getElementById("contributors-unavailable");
+    host.textContent = "";
+
+    if (contributors === null) {
+      host.hidden = true;
+      empty.hidden = true;
+      unavailable.hidden = false;
+      return;
+    }
+    unavailable.hidden = true;
+
+    if (contributors.length === 0) {
+      host.hidden = true;
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+    host.hidden = false;
+
+    contributors.forEach(function (donor, i) {
+      var isOpen = !!openContributors[donor.donorObjectId];
+
+      var row = document.createElement("div");
+      row.className = "contributor";
+
+      var toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "contributor-toggle";
+      toggle.id = "contributor-toggle-" + i;
+      toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      toggle.setAttribute("aria-controls", "contributor-body-" + i);
+
+      var name = document.createElement("span");
+      name.className = "contributor-name";
+      var chevron = document.createElement("i");
+      chevron.className = "contributor-chevron";
+      chevron.setAttribute("aria-hidden", "true");
+      name.appendChild(chevron);
+      name.appendChild(document.createTextNode(donor.donorName || ("#" + donor.donorObjectId)));
+      toggle.appendChild(name);
+
+      var count = document.createElement("span");
+      count.className = "contributor-count";
+      count.textContent = commas(donor.totalCount) + (donor.totalCount === 1 ? " item" : " items");
+      toggle.appendChild(count);
+
+      var body = document.createElement("div");
+      body.className = "contributor-body";
+      body.id = "contributor-body-" + i;
+      body.setAttribute("role", "region");
+      body.setAttribute("aria-labelledby", toggle.id);
+      body.hidden = !isOpen;
+
+      var table = document.createElement("table");
+      var thead = document.createElement("thead");
+      var headRow = document.createElement("tr");
+      ["Item", "Count", "Date"].forEach(function (label) {
+        var th = document.createElement("th");
+        if (label === "Count") th.className = "num";
+        th.textContent = label;
+        headRow.appendChild(th);
+      });
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      var tbody = document.createElement("tbody");
+      (donor.entries || []).forEach(function (entry) {
+        var tr = document.createElement("tr");
+
+        var tdItem = document.createElement("td");
+        tdItem.textContent = entry.item || ("#" + entry.wcid);
+        tr.appendChild(tdItem);
+
+        var tdCount = document.createElement("td");
+        tdCount.className = "num";
+        tdCount.textContent = commas(entry.count);
+        tr.appendChild(tdCount);
+
+        var tdDate = document.createElement("td");
+        var since = document.createElement("span");
+        since.className = "since";
+        since.textContent = localDateTime(entry.utc);
+        since.title = localDateTimeTitle(entry.utc);
+        tdDate.appendChild(since);
+        tr.appendChild(tdDate);
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      body.appendChild(table);
+
+      toggle.addEventListener("click", function () {
+        var next = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", next ? "true" : "false");
+        body.hidden = !next;
+        if (next) openContributors[donor.donorObjectId] = true;
+        else delete openContributors[donor.donorObjectId];
+      });
+
+      row.appendChild(toggle);
+      row.appendChild(body);
+      host.appendChild(row);
+    });
+  }
+
+  // Kept off the per-tick status payload (trade-donations brief, U2b: the ledger has no bound),
+  // so it is its own fetch rather than a field render() reads off /api/bots -- one at a time,
+  // same idea as offline degrade elsewhere: a failed or unauthorized fetch renders the
+  // "unavailable" state rather than throwing the whole poll off.
+  var contributorsFetchInFlight = false;
+
+  function pollContributors(botId) {
+    if (!botId) { renderContributors([]); return; }
+    if (contributorsFetchInFlight) return;
+    contributorsFetchInFlight = true;
+    apiFetch("/api/bots/" + encodeURIComponent(botId) + "/contributors").then(function (res) {
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    }).then(function (data) {
+      contributorsFetchInFlight = false;
+      renderContributors((data && data.contributors) || []);
+    }).catch(function () {
+      contributorsFetchInFlight = false;
+      renderContributors(null);
+    });
+  }
+
+  /* ── controls ────────────────────────────────────────── */
+
+  // Access policy: cosmetic only — free is the only mode the build ships, and paid/fellowship
+  // stay disabled (B-207).
+  document.querySelectorAll(".segmented button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (b.disabled) return;
+      document.querySelectorAll(".segmented button").forEach(function (o) {
+        o.setAttribute("aria-pressed", String(o === b));
+      });
+    });
+  });
+
+  // Posts a partial settings write for whichever bot is selected (console-controls brief) —
+  // every other field is left alone, matching the mesh's own partial-patch contract. A no-op
+  // with nothing selected, the same guard every other command button already uses.
+  function postSettings(patch, button, resultEl) {
+    var botId = botSelect.value;
+    if (!botId) return;
+    runCommand(botId, { kind: "settings", settings: patch }, button, resultEl);
+  }
+
+  // Skips a re-render while the control is the thing the operator is currently touching, so a
+  // poll landing mid-drag or mid-selection cannot yank a slider or a dropdown out from under them.
+  function setIfNotActive(el, apply) {
+    if (document.activeElement !== el) apply();
+  }
+
+  var targetTier = document.getElementById("target-tier");
+  targetTier.addEventListener("change", function () {
+    var value = targetTier.value === "" ? null : Number(targetTier.value);
+    postSettings({ targetTier: value }, targetTier, document.getElementById("target-tier-result"));
+  });
+
+  var tierFallback = document.getElementById("tier-fallback");
+  tierFallback.addEventListener("change", function () {
+    postSettings(
+      { tierFallback: tierFallback.checked }, tierFallback, document.getElementById("tier-fallback-result"));
+  });
+
+  var fizzleSkip = document.getElementById("fizzle-skip");
+  var fizzleSkipVal = document.getElementById("fizzle-skip-val");
+  fizzleSkip.addEventListener("input", function () {
+    fizzleSkipVal.textContent = fizzleSkip.value;
+  });
+  fizzleSkip.addEventListener("change", function () {
+    postSettings(
+      { fizzlesBeforeSkip: Number(fizzleSkip.value) }, fizzleSkip, document.getElementById("fizzle-skip-result"));
+  });
+
+  var selfBuff = document.getElementById("selfbuff");
+  selfBuff.addEventListener("change", function () {
+    postSettings({ selfBuffUpkeep: selfBuff.checked }, selfBuff, document.getElementById("selfbuff-result"));
+  });
+
+  var splitPeas = document.getElementById("splitpeas");
+  splitPeas.addEventListener("change", function () {
+    postSettings({ splitPeas: splitPeas.checked }, splitPeas, document.getElementById("splitpeas-result"));
+  });
+
+  var range = document.getElementById("range");
+  var rangeVal = document.getElementById("range-val");
+  range.addEventListener("input", function () {
+    rangeVal.textContent = Number(range.value).toFixed(1) + " m";
+  });
+  range.addEventListener("change", function () {
+    postSettings({ refusalRangeMeters: Number(range.value) }, range, document.getElementById("range-result"));
+  });
+
+  var rate = document.getElementById("rate");
+  var rateVal = document.getElementById("rate-val");
+  rate.addEventListener("input", function () {
+    rateVal.textContent = rate.value + " / 60s";
+  });
+  rate.addEventListener("change", function () {
+    postSettings(
+      { repliesPerSenderPerMinute: Number(rate.value) }, rate, document.getElementById("rate-result"));
+  });
+
+  var lowStock = document.getElementById("low-stock");
+  lowStock.addEventListener("change", function () {
+    postSettings(
+      { componentLowStock: Number(lowStock.value) }, lowStock, document.getElementById("low-stock-result"));
+  });
+
+  // Pause intake toggles off whatever the hub last reported (renderControls below keeps
+  // pausedNow in sync), rather than assuming the button's own idle label.
+  var pausedNow = false;
+  var pauseButton = document.getElementById("pause");
+  var pauseResult = document.getElementById("pause-result");
+  pauseButton.addEventListener("click", function () {
+    postSettings({ intakePaused: !pausedNow }, pauseButton, pauseResult);
+  });
+
+  document.getElementById("drain").addEventListener("click", function () {
+    var botId = botSelect.value;
+    if (!botId) return;
+    runCommand(botId, { kind: "drain", objectId: 0 }, this, document.getElementById("drain-result"));
+  });
+
+  // Only used as a fallback when a poll lands with no settings object at all (a bot that has
+  // never ticked yet) — every real snapshot carries every field. Declared here, ahead of every
+  // reader below (live defect, 2026-09-13, introduced by 0c95a1c): the mana-handle setup just
+  // below reads it immediately, at startup, not from inside a function called later, so it has
+  // to already be assigned by the time this line runs, not merely hoisted.
+  var BuffBotSettingsDefaults = {
+    fizzlesBeforeSkip: 6, refusalRangeMeters: 67.5, repliesPerSenderPerMinute: 12, componentLowStock: 25,
+    manaBounceLowWaterFraction: 0.20, manaBounceHighWaterFraction: 0.80,
+  };
+
+  // Console vitals brief, unit 5: the mana bar's draggable low/high handles. Limits mirror the
+  // server's own (BuffBotSettings): low 5-60%, high 40-100%, at least 10 points apart — clamped
+  // here too so the handle never visually crosses the line it will be clamped to on the wire.
+  var manaBarWrap = document.getElementById("mana-bar-wrap");
+  var manaHandleLow = document.getElementById("mana-handle-low");
+  var manaHandleHigh = document.getElementById("mana-handle-high");
+  var windowLowEl = document.getElementById("window-low");
+  var windowHighEl = document.getElementById("window-high");
+  var manaBounceResult = document.getElementById("mana-bounce-result");
+  var MANA_BOUNCE_MIN_LOW = 0.05, MANA_BOUNCE_MAX_LOW = 0.60;
+  var MANA_BOUNCE_MIN_HIGH = 0.40, MANA_BOUNCE_MAX_HIGH = 1.00;
+  var MANA_BOUNCE_MIN_GAP = 0.10;
+  var manaBounceLow = BuffBotSettingsDefaults.manaBounceLowWaterFraction;
+  var manaBounceHigh = BuffBotSettingsDefaults.manaBounceHighWaterFraction;
+  // Set while a handle is being dragged or nudged, so a poll landing mid-drag cannot yank it out
+  // from under the operator (the same reasoning setIfNotActive gives for a focused form field).
+  var manaHandleDragging = null;
+
+  function renderManaHandles() {
+    var lowPct = (manaBounceLow * 100).toFixed(1);
+    var highPct = (manaBounceHigh * 100).toFixed(1);
+    manaHandleLow.style.left = lowPct + "%";
+    manaHandleHigh.style.left = highPct + "%";
+    manaHandleLow.setAttribute("aria-valuenow", Math.round(manaBounceLow * 100));
+    manaHandleHigh.setAttribute("aria-valuenow", Math.round(manaBounceHigh * 100));
+    windowLowEl.textContent = Math.round(manaBounceLow * 100);
+    windowHighEl.textContent = Math.round(manaBounceHigh * 100);
+  }
+
+  function manaBounceFractionAtClientX(clientX) {
+    var rect = manaBarWrap.getBoundingClientRect();
+    if (rect.width <= 0) return 0;
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }
+
+  function moveManaHandle(which, fraction) {
+    if (which === "low") {
+      fraction = Math.max(MANA_BOUNCE_MIN_LOW, Math.min(MANA_BOUNCE_MAX_LOW, fraction));
+      manaBounceLow = Math.min(fraction, manaBounceHigh - MANA_BOUNCE_MIN_GAP);
+    } else {
+      fraction = Math.max(MANA_BOUNCE_MIN_HIGH, Math.min(MANA_BOUNCE_MAX_HIGH, fraction));
+      manaBounceHigh = Math.max(fraction, manaBounceLow + MANA_BOUNCE_MIN_GAP);
+    }
+    renderManaHandles();
+  }
+
+  // Saved on release, not while dragging (B-227: settings are a per-character write, not a
+  // stream) — the field name matches whichever handle just moved.
+  function commitManaHandle(handleEl, which) {
+    var patch = which === "low"
+      ? { manaBounceLowWaterFraction: manaBounceLow }
+      : { manaBounceHighWaterFraction: manaBounceHigh };
+    postSettings(patch, handleEl, manaBounceResult);
+  }
+
+  [["low", manaHandleLow], ["high", manaHandleHigh]].forEach(function (pair) {
+    var which = pair[0];
+    var handleEl = pair[1];
+
+    handleEl.addEventListener("pointerdown", function (ev) {
+      ev.preventDefault();
+      manaHandleDragging = which;
+      handleEl.classList.add("dragging");
+      handleEl.setPointerCapture(ev.pointerId);
+    });
+    handleEl.addEventListener("pointermove", function (ev) {
+      if (manaHandleDragging !== which) return;
+      moveManaHandle(which, manaBounceFractionAtClientX(ev.clientX));
+    });
+    handleEl.addEventListener("pointerup", function (ev) {
+      if (manaHandleDragging !== which) return;
+      handleEl.releasePointerCapture(ev.pointerId);
+      handleEl.classList.remove("dragging");
+      manaHandleDragging = null;
+      commitManaHandle(handleEl, which);
+    });
+
+    // Keyboard equivalent for the same slider (role="slider" above) -- one percentage point per
+    // press, committed on key-up the same way a drag commits on pointer-up.
+    handleEl.addEventListener("keydown", function (ev) {
+      if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+      ev.preventDefault();
+      var current = which === "low" ? manaBounceLow : manaBounceHigh;
+      moveManaHandle(which, current + (ev.key === "ArrowLeft" ? -0.01 : 0.01));
+    });
+    handleEl.addEventListener("keyup", function (ev) {
+      if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") commitManaHandle(handleEl, which);
+    });
+  });
+
+  // Renders every live control from the selected bot's status.settings (the hub is the source
+  // of truth) — console-controls brief.
+  function renderControls(settings) {
+    settings = settings || {};
+
+    setIfNotActive(targetTier, function () {
+      targetTier.value = settings.targetTier === null || settings.targetTier === undefined
+        ? ""
+        : String(settings.targetTier);
+    });
+    setIfNotActive(tierFallback, function () { tierFallback.checked = !!settings.tierFallback; });
+    setIfNotActive(fizzleSkip, function () {
+      fizzleSkip.value = settings.fizzlesBeforeSkip || BuffBotSettingsDefaults.fizzlesBeforeSkip;
+      fizzleSkipVal.textContent = fizzleSkip.value;
+    });
+    setIfNotActive(selfBuff, function () { selfBuff.checked = !!settings.selfBuffUpkeep; });
+    setIfNotActive(splitPeas, function () { splitPeas.checked = settings.splitPeas !== false; });
+    setIfNotActive(range, function () {
+      range.value = settings.refusalRangeMeters || BuffBotSettingsDefaults.refusalRangeMeters;
+      rangeVal.textContent = Number(range.value).toFixed(1) + " m";
+    });
+    setIfNotActive(rate, function () {
+      rate.value = settings.repliesPerSenderPerMinute || BuffBotSettingsDefaults.repliesPerSenderPerMinute;
+      rateVal.textContent = rate.value + " / 60s";
+    });
+    setIfNotActive(lowStock, function () {
+      lowStock.value = settings.componentLowStock == null
+        ? BuffBotSettingsDefaults.componentLowStock
+        : settings.componentLowStock;
+    });
+    if (!manaHandleDragging) {
+      manaBounceLow = settings.manaBounceLowWaterFraction == null
+        ? BuffBotSettingsDefaults.manaBounceLowWaterFraction
+        : settings.manaBounceLowWaterFraction;
+      manaBounceHigh = settings.manaBounceHighWaterFraction == null
+        ? BuffBotSettingsDefaults.manaBounceHighWaterFraction
+        : settings.manaBounceHighWaterFraction;
+      renderManaHandles();
+    }
+
+    pausedNow = !!settings.intakePaused;
+    pauseButton.textContent = pausedNow ? "Resume intake" : "Pause intake";
+    pauseButton.classList.toggle("primary", pausedNow);
+  }
+
+  /* ── token ───────────────────────────────────────────── */
+
+  var apiToken = null;
+  (function initToken() {
+    var params = new URLSearchParams(window.location.search);
+    var fromUrl = params.get("token");
+    if (fromUrl) {
+      apiToken = fromUrl;
+      try { sessionStorage.setItem(TOKEN_KEY, fromUrl); } catch (e) { /* ignore */ }
+      params.delete("token");
+      var qs = params.toString();
+      var newUrl = window.location.pathname + (qs ? "?" + qs : "") + window.location.hash;
+      try { window.history.replaceState(null, "", newUrl); } catch (e) { /* ignore */ }
+    } else {
+      try { apiToken = sessionStorage.getItem(TOKEN_KEY); } catch (e) { apiToken = null; }
+    }
+  })();
+
+  function apiFetch(path, opts) {
+    opts = opts || {};
+    var headers = {};
+    for (var k in (opts.headers || {})) headers[k] = opts.headers[k];
+    if (apiToken) headers["Authorization"] = "Bearer " + apiToken;
+    var merged = { method: opts.method, headers: headers, body: opts.body };
+    return fetch(path, merged);
+  }
+
+  /* ── connection state ───────────────────────────────── */
+
+  var appEl = document.getElementById("app");
+  var offlineBanner = document.getElementById("offline-banner");
+  var authGate = document.getElementById("auth-gate");
+  var authGateMsg = document.getElementById("auth-gate-msg");
+
+  function showOfflineBanner() {
+    offlineBanner.hidden = false;
+    appEl.classList.add("stale");
+  }
+  function hideOfflineBanner() {
+    offlineBanner.hidden = true;
+    appEl.classList.remove("stale");
+  }
+
+  var FALLBACK_GATE_TEXT = "This page needs the link from the client log — it carries the access token.";
+
+  function setGateMessage(nodes) {
+    authGateMsg.textContent = "";
+    nodes.forEach(function (n) { authGateMsg.appendChild(n); });
+  }
+  function showPlainGateMessage(text) {
+    setGateMessage([document.createTextNode(text)]);
+  }
+
+  function showAuthGate() {
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    appEl.hidden = true;
+    authGate.hidden = false;
+    if (!hubPollActive) {
+      showPlainGateMessage(FALLBACK_GATE_TEXT);
+      offlineBanner.hidden = true;
+      startHubPoll();
+    }
+  }
+
+  /* ── hub polling (key-rotation recovery) ──────────────── */
+
+  var CRYPTO_OK = !!(window.crypto && window.crypto.subtle && window.crypto.subtle.digest && window.TextEncoder);
+  var fingerprintCache = { token: null, promise: null };
+
+  function tokenFingerprint(token) {
+    if (fingerprintCache.token === token) return fingerprintCache.promise;
+    var promise = window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)).then(function (buf) {
+      var bytes = new Uint8Array(buf);
+      var hex = "";
+      for (var i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
+      return hex.slice(0, 16);
+    });
+    fingerprintCache = { token: token, promise: promise };
+    return promise;
+  }
+
+  var hubPollTimer = null;
+  var hubPollActive = false;
+
+  function scheduleHubPoll(delay) {
+    hubPollTimer = setTimeout(pollHub, delay);
+  }
+  function stopHubPoll() {
+    if (hubPollTimer) { clearTimeout(hubPollTimer); hubPollTimer = null; }
+    hubPollActive = false;
+  }
+  function startHubPoll() {
+    if (hubPollActive) return;
+    hubPollActive = true;
+    pollHub();
+  }
+
+  function recoverFromAuthGate() {
+    stopHubPoll();
+    hideOfflineBanner();
+    authGate.hidden = true;
+    appEl.hidden = false;
+    poll();
+  }
+
+  function handleHubData(data) {
+    hideOfflineBanner();
+
+    if (!apiToken || !CRYPTO_OK) {
+      showPlainGateMessage(
+        "This page needs its access link. In-game, click BuffBot's Open web console button — "
+        + "it always has the current one. Running headless, copy it from the bot's log.");
+      return;
+    }
+    if (data.deciding) {
+      showPlainGateMessage("The console is starting up — checking whether its access link changed…");
+      return;
+    }
+    tokenFingerprint(apiToken).then(function (fp) {
+      if (fp === data.keyFingerprint) {
+        recoverFromAuthGate();
+      } else {
+        showPlainGateMessage(
+          "The console restarted with a new access link. In-game, click BuffBot's Open web "
+          + "console button to get it. Running headless, copy the new link from the bot's log.");
+      }
+    });
+  }
+
+  function pollHub() {
+    fetch("/api/hub").then(function (res) {
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    }).then(function (data) {
+      handleHubData(data);
+      scheduleHubPoll(3000);
+    }).catch(function () {
+      showOfflineBanner();
+      scheduleHubPoll(3000);
+    });
+  }
+
+  /* ── bot selection ───────────────────────────────────── */
+
+  var botSelect = document.getElementById("bot");
+  var lastBotsSignature = "";
+
+  function storedBotId() {
+    try { return localStorage.getItem(BOT_KEY); } catch (e) { return null; }
+  }
+  function storeBotId(id) {
+    try { localStorage.setItem(BOT_KEY, id); } catch (e) { /* ignore */ }
+  }
+  function findBot(bots, id) {
+    for (var i = 0; i < bots.length; i++) {
+      if (bots[i].botId === id) return bots[i];
+    }
+    return null;
+  }
+  function resolveSelectedBot(bots, hubBotId) {
+    var stored = storedBotId();
+    if (stored && findBot(bots, stored)) return stored;
+    if (hubBotId && findBot(bots, hubBotId)) return hubBotId;
+    return bots[0].botId;
+  }
+  function orderedBots(bots) {
+    var hubs = bots.filter(function (b) { return b.isHub; });
+    var others = bots.filter(function (b) { return !b.isHub; });
+    return hubs.concat(others);
+  }
+  function isBotEnabled(b) { return !!(b.status && b.status.enabled); }
+
+  // Two groups, hub first within each: an inert bot is not a broken one, so it sits in its own
+  // "Available" group rather than mixed in or hidden.
+  function populateBotSelect(bots, selectedBotId) {
+    var ordered = orderedBots(bots);
+    var sig = ordered.map(function (b) {
+      return b.botId + "|" + b.name + "|" + b.world + "|" + b.stale + "|" + isBotEnabled(b);
+    }).join(",");
+    if (sig !== lastBotsSignature) {
+      botSelect.textContent = "";
+      var groups = [
+        ["Enabled", ordered.filter(isBotEnabled)],
+        ["Available", ordered.filter(function (b) { return !isBotEnabled(b); })]
+      ];
+      groups.forEach(function (group) {
+        var label = group[0], groupBots = group[1];
+        if (groupBots.length === 0) return;
+        var optgroup = document.createElement("optgroup");
+        optgroup.label = label;
+        groupBots.forEach(function (b) {
+          var opt = document.createElement("option");
+          opt.value = b.botId;
+          var text = (b.name || b.botId) + " · " + (b.world || "—");
+          if (b.stale) text += " (stale)";
+          opt.textContent = text;
+          optgroup.appendChild(opt);
+        });
+        botSelect.appendChild(optgroup);
+      });
+      lastBotsSignature = sig;
+    }
+    botSelect.value = selectedBotId;
+    botSelect.hidden = false;
+  }
+
+  botSelect.addEventListener("change", function () {
+    storeBotId(botSelect.value);
+    hideEnableConfirm();
+    if (lastPayload) render(lastPayload);
+  });
+
+  /* ── top bar ─────────────────────────────────────────── */
+
+  var originText = document.getElementById("origin-text");
+  function renderOrigin(count) {
+    var port = window.location.port ? (":" + window.location.port) : "";
+    var label = count === 1 ? " bot" : " bots";
+    originText.textContent = "127.0.0.1" + port + " · " + count + label;
+  }
+
+  /* ── now band ────────────────────────────────────────── */
+
+  var pillEl = document.getElementById("state-pill");
+  var stepCountEl = document.getElementById("step-count");
+  var stepBarWrap = document.getElementById("step-bar-wrap");
+  var stepBar = document.getElementById("step-bar");
+  var spellLineEl = document.getElementById("spell-line");
+  var castingForEl = document.getElementById("casting-for");
+  var requesterEl = document.getElementById("requester");
+  var manaCurEl = document.getElementById("mana-cur");
+  var manaMaxEl = document.getElementById("mana-max");
+  var manaBarEl = document.getElementById("mana-bar");
+  var healthCurEl = document.getElementById("health-cur");
+  var healthMaxEl = document.getElementById("health-max");
+  var healthBarEl = document.getElementById("health-bar");
+  var staminaCurEl = document.getElementById("stamina-cur");
+  var staminaMaxEl = document.getElementById("stamina-max");
+  var staminaBarEl = document.getElementById("stamina-bar");
+  var nowSection = document.querySelector(".now");
+  var nowEmpty = document.getElementById("now-empty");
+
+  function pillInfo(activity) {
+    if (activity === "serving") return { cls: "is-serving", text: "Serving" };
+    if (activity === "selfBuffing") return { cls: "is-self", text: "Self-buffing" };
+    if (activity === "toppingUp") return { cls: "is-self", text: "Topping up" };
+    return { cls: "is-idle", text: "Idle" };
+  }
+
+  function renderNow(status) {
+    status = status || {};
+    var info = pillInfo(status.activity);
+    pillEl.className = "pill " + info.cls;
+    pillEl.textContent = info.text;
+
+    if (status.stepCount > 0) {
+      stepCountEl.hidden = false;
+      stepBarWrap.hidden = false;
+      document.getElementById("step-i").textContent = status.stepIndex;
+      document.getElementById("step-n").textContent = status.stepCount;
+      var stepPct = (status.stepIndex / status.stepCount) * 100;
+      stepBar.style.width = Math.max(0, Math.min(100, stepPct)).toFixed(1) + "%";
+    } else {
+      stepCountEl.hidden = true;
+      stepBarWrap.hidden = true;
+    }
+
+    spellLineEl.textContent = status.currentSpellLine || "—";
+
+    if (status.activity === "serving" && status.currentRequesterName) {
+      castingForEl.hidden = false;
+      requesterEl.textContent = status.currentRequesterName;
+    } else {
+      castingForEl.hidden = true;
+    }
+
+    var mana = status.currentMana || 0;
+    var maxMana = status.maxMana || 0;
+    manaCurEl.textContent = commas(mana);
+    manaMaxEl.textContent = commas(maxMana);
+    var manaPct = maxMana > 0 ? (mana / maxMana) * 100 : 0;
+    manaBarEl.style.width = Math.max(0, Math.min(100, manaPct)).toFixed(1) + "%";
+
+    // Docket 12 / docket 19: null (a genuinely unavailable character, or an older spoke that
+    // never sent the field) renders as a dash rather than a false zero.
+    setVitalBar(healthCurEl, healthMaxEl, healthBarEl, status.currentHealth, status.maxHealth);
+    setVitalBar(staminaCurEl, staminaMaxEl, staminaBarEl, status.currentStamina, status.maxStamina);
+  }
+
+  function setVitalBar(curEl, maxEl, barEl, cur, max) {
+    if (cur == null || max == null) {
+      curEl.textContent = "—";
+      maxEl.textContent = "—";
+      barEl.style.width = "0%";
+      return;
+    }
+    curEl.textContent = commas(cur);
+    maxEl.textContent = commas(max);
+    var pct = max > 0 ? (cur / max) * 100 : 0;
+    barEl.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + "%";
+  }
+
+  function renderCounters(counters) {
+    counters = counters || {};
+    document.getElementById("count-tells").textContent = commas(counters.tellsAnswered);
+    document.getElementById("count-casts").textContent = commas(counters.castsLanded);
+    document.getElementById("count-fizzles").textContent = commas(counters.fizzles);
+    document.getElementById("count-bounces").textContent = commas(counters.manaBounces);
+    document.getElementById("count-tierdown").textContent = commas(counters.tierStepDowns);
+  }
+
+  function renderRefused(refused) {
+    refused = refused || {};
+    var el = document.getElementById("count-refused");
+    el.textContent = commas(refused.total);
+    el.title = commas(refused.outOfRange) + " out of range · " +
+      commas(refused.unknownLine) + " unknown line · " +
+      commas(refused.nothingLearned) + " nothing learned";
+  }
+
+  /* ── headline tiles ──────────────────────────────────── */
+
+  function renderTiles(stats, counters) {
+    stats = stats || {};
+    counters = counters || {};
+
+    var playersServed = stats.playersServed || 0;
+    var playersReturning = stats.playersReturning || 0;
+    document.getElementById("tile-players-value").textContent = commas(playersServed);
+    document.getElementById("tile-players-trend").textContent = commas(playersReturning) + " came back";
+
+    var castsLanded = counters.castsLanded || 0;
+    document.getElementById("tile-casts-value").textContent = commas(castsLanded);
+    document.getElementById("tile-casts-trend").textContent =
+      playersServed > 0 ? (castsLanded / playersServed).toFixed(1) + " per player" : "";
+
+    var lines = stats.lines || [];
+    var totalAttempts = 0, totalFizzles = 0;
+    lines.forEach(function (l) {
+      totalAttempts += l.attempts || 0;
+      totalFizzles += l.fizzles || 0;
+    });
+    var fizzleValueEl = document.getElementById("tile-fizzle-value");
+    var fizzlePctEl = document.getElementById("tile-fizzle-pct");
+    var fizzleTrendEl = document.getElementById("tile-fizzle-trend");
+    if (totalAttempts > 0) {
+      fizzleValueEl.textContent = ((totalFizzles / totalAttempts) * 100).toFixed(1);
+      fizzlePctEl.hidden = false;
+      fizzleTrendEl.textContent = commas(totalFizzles) + " of " + commas(totalAttempts) + " attempts";
+    } else {
+      fizzleValueEl.textContent = "—";
+      fizzlePctEl.hidden = true;
+      fizzleTrendEl.textContent = "";
+    }
+
+    var wait = stats.wait || {};
+    var waitValueEl = document.getElementById("tile-wait-value");
+    var waitTrendEl = document.getElementById("tile-wait-trend");
+    if (wait.medianSeconds === null || wait.medianSeconds === undefined) {
+      waitValueEl.textContent = "—";
+      waitTrendEl.textContent = "";
+    } else {
+      waitValueEl.textContent = mmss(wait.medianSeconds);
+      waitTrendEl.textContent = (wait.longestSeconds === null || wait.longestSeconds === undefined)
+        ? ""
+        : "longest " + mmss(wait.longestSeconds);
+    }
+  }
+
+  /* ── commands ────────────────────────────────────────── */
+
+  function friendlyCommandError(status, payload) {
+    var serverMessage = payload && (payload.message || payload.error);
+    if (serverMessage) return serverMessage;
+    if (status === 400) return "The hub rejected that command.";
+    if (status === 404) return "That bot or player is no longer there.";
+    return "Request failed (" + status + ").";
+  }
+
+  function runCommand(botId, body, button, resultEl) {
+    button.disabled = true;
+    resultEl.textContent = "";
+    resultEl.classList.remove("err");
+    apiFetch("/api/bots/" + encodeURIComponent(botId) + "/commands", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (res.status === 401) { showAuthGate(); return null; }
+      if (res.status === 202) {
+        resultEl.textContent = "Sent — applies on the bot's next tick.";
+        return null;
+      }
+      return res.json().catch(function () { return null; }).then(function (payload) {
+        resultEl.textContent = friendlyCommandError(res.status, payload);
+        resultEl.classList.add("err");
+      });
+    }).catch(function () {
+      resultEl.textContent = "Could not reach the hub.";
+      resultEl.classList.add("err");
+    }).then(function () {
+      button.disabled = false;
+    });
+  }
+
+  /* ── enable / disable ────────────────────────────────── */
+
+  var enableSwitch = document.getElementById("enable");
+  var enableResult = document.getElementById("enable-result");
+  var enableConfirm = document.getElementById("enable-confirm");
+  var enableConfirmText = document.getElementById("enable-confirm-text");
+  var nowInert = document.getElementById("now-inert");
+  var pendingEnableBotId = null;
+
+  function hideEnableConfirm() {
+    enableConfirm.hidden = true;
+    pendingEnableBotId = null;
+  }
+
+  // Enabling always asks first, naming the character (web-console-live brief, unit 5): an in-page
+  // popover, never window.confirm — a browser automation session cannot dismiss a native dialog.
+  // Disabling needs no confirm.
+  function showEnableConfirm(botId, name) {
+    pendingEnableBotId = botId;
+    enableConfirmText.textContent = "Make " + name + " answer buff requests from other players?";
+    enableConfirm.hidden = false;
+  }
+
+  function sendEnableCommand(botId, enabled) {
+    runCommand(botId, { kind: enabled ? "enable" : "disable", objectId: 0 }, enableSwitch, enableResult);
+  }
+
+  function selectedBotName(botId) {
+    var bots = (lastPayload && lastPayload.bots) || [];
+    var bot = findBot(bots, botId);
+    return (bot && bot.name) || botId;
+  }
+
+  enableSwitch.addEventListener("click", function (evt) {
+    // The native toggle never runs on its own -- it only reflects what the hub confirms on the
+    // next poll, win or lose, so this page can never show "on" while the bot is still off.
+    evt.preventDefault();
+    // Decided from the hub's last word, not from enableSwitch.checked: inside a checkbox's click
+    // handler that already holds the toggled value, before preventDefault puts it back.
+    var botId = botSelect.value;
+    if (!botId) return;
+    var shown = findBot((lastPayload && lastPayload.bots) || [], botId);
+    if (shown && isBotEnabled(shown)) {
+      sendEnableCommand(botId, false);
+    } else {
+      showEnableConfirm(botId, selectedBotName(botId));
+    }
+  });
+
+  document.getElementById("enable-confirm-yes").addEventListener("click", function () {
+    var botId = pendingEnableBotId;
+    hideEnableConfirm();
+    if (botId) sendEnableCommand(botId, true);
+  });
+  document.getElementById("enable-confirm-no").addEventListener("click", hideEnableConfirm);
+
+  document.getElementById("now-inert-enable").addEventListener("click", function () {
+    var botId = botSelect.value;
+    if (!botId) return;
+    showEnableConfirm(botId, selectedBotName(botId));
+  });
+
+  /* ── waiting table ───────────────────────────────────── */
+
+  function renderQueueTable(waiting) {
+    var table = document.getElementById("queue");
+    var body = table.querySelector("tbody");
+    var empty = table.parentNode.querySelector(".empty");
+    body.textContent = "";
+
+    waiting.forEach(function (w) {
+      var tr = document.createElement("tr");
+
+      var tdWho = document.createElement("td");
+      tdWho.className = "who";
+      tdWho.textContent = w.name || ("#" + w.objectId);
+      tr.appendChild(tdWho);
+
+      var tdArch = document.createElement("td");
+      var archSpan = document.createElement("span");
+      archSpan.className = "asked";
+      archSpan.textContent = w.archetype || "—";
+      tdArch.appendChild(archSpan);
+      tr.appendChild(tdArch);
+
+      var tdWait = document.createElement("td");
+      tdWait.className = "num";
+      var since = document.createElement("span");
+      since.className = "since";
+      since.textContent = mmss(w.waitingSeconds);
+      tdWait.appendChild(since);
+      tr.appendChild(tdWait);
+
+      body.appendChild(tr);
+    });
+
+    document.getElementById("queue-count").textContent =
+      waiting.length === 0 ? "nobody waiting" : waiting.length + (waiting.length === 1 ? " waiting" : " in the queue");
+    empty.hidden = waiting.length > 0;
+    table.hidden = waiting.length === 0;
+  }
+
+  /* ── recent activity log ─────────────────────────────── */
+
+  // The wire kind matches SolrLabs.BuffBot.Stats.RecentEventKind's members, camelCased.
+  var RECENT_CLASS = {
+    cast: "ok",
+    fizzle: "bad", skipped: "bad", refused: "bad", mute: "bad",
+    manaBounce: "note", requestAccepted: "note", release: "note", unwedge: "note"
+  };
+
+  function recentLineNode(evt) {
+    var span = document.createElement("span");
+    span.className = RECENT_CLASS[evt.kind] || "ok";
+
+    function b(text) {
+      var n = document.createElement("b");
+      n.textContent = text;
+      return n;
+    }
+
+    switch (evt.kind) {
+      case "cast":
+        span.appendChild(document.createTextNode("You cast "));
+        span.appendChild(b(evt.line || "—"));
+        span.appendChild(document.createTextNode(" on " + (evt.targetName || "—")));
+        break;
+      case "fizzle":
+        span.appendChild(document.createTextNode("Fizzle — " + (evt.line || "—")));
+        break;
+      case "skipped":
+        span.appendChild(document.createTextNode("Skipped " + (evt.line || "—") + " — " + (evt.reason || "—")));
+        break;
+      case "manaBounce":
+        span.appendChild(document.createTextNode(
+          "Mana bounce — " + commas(evt.manaBefore) + " → " + commas(evt.manaAfter)));
+        break;
+      case "requestAccepted":
+        span.appendChild(document.createTextNode("Accepted "));
+        span.appendChild(b(evt.who || "—"));
+        span.appendChild(document.createTextNode(" — " + (evt.archetype || "—")));
+        break;
+      case "refused":
+        span.appendChild(document.createTextNode("Refused "));
+        span.appendChild(b(evt.who || "—"));
+        span.appendChild(document.createTextNode(" — " + (evt.reason || "—")));
+        break;
+      case "mute":
+        span.appendChild(document.createTextNode("Muted "));
+        span.appendChild(b(evt.who || "—"));
+        span.appendChild(document.createTextNode(" — " + (evt.source || "—")));
+        break;
+      case "release":
+        span.appendChild(document.createTextNode("Released "));
+        span.appendChild(b(evt.who || "—"));
+        span.appendChild(document.createTextNode(" — " + (evt.source || "—")));
+        break;
+      case "unwedge":
+        span.appendChild(document.createTextNode("Unwedge — " + (evt.source || "—")));
+        break;
+      default:
+        span.appendChild(document.createTextNode(evt.kind || "—"));
+    }
+    return span;
+  }
+
+  function renderRecent(recent) {
+    recent = recent || [];
+    var host = document.getElementById("log");
+    var empty = document.getElementById("log-empty");
+    host.textContent = "";
+
+    // The wire already delivers newest-first (ActivityLog.Add inserts at the front).
+    recent.forEach(function (evt) {
+      var row = document.createElement("div");
+      var time = document.createElement("time");
+      time.textContent = hhmmss(new Date(evt.timestamp));
+      row.appendChild(time);
+      row.appendChild(recentLineNode(evt));
+      host.appendChild(row);
+    });
+
+    empty.hidden = recent.length > 0;
+    host.hidden = recent.length === 0;
+  }
+
+  /* ── render + poll ───────────────────────────────────── */
+
+  var lastPayload = null;
+  var pollTimer = null;
+
+  function render(data) {
+    lastPayload = data;
+    var bots = data.bots || [];
+    renderOrigin(bots.length);
+
+    if (bots.length === 0) {
+      nowSection.hidden = true;
+      nowEmpty.hidden = false;
+      botSelect.hidden = true;
+      botSelect.textContent = "";
+      lastBotsSignature = "";
+      enableSwitch.disabled = true;
+      nowInert.hidden = true;
+      hideEnableConfirm();
+      renderQueueTable([]);
+      renderComps({ available: true, items: [] }, BuffBotSettingsDefaults.componentLowStock);
+      pollContributors(null);
+      return;
+    }
+
+    nowSection.hidden = false;
+    nowEmpty.hidden = true;
+    enableSwitch.disabled = false;
+
+    var selectedBotId = resolveSelectedBot(bots, data.hubBotId);
+    populateBotSelect(bots, selectedBotId);
+
+    var bot = findBot(bots, selectedBotId) || findBot(bots, data.hubBotId) || bots[0];
+    var status = bot.status || {};
+
+    enableSwitch.checked = !!status.enabled;
+    nowInert.hidden = !!status.enabled;
+    renderNow(status);
+    renderCounters(status.counters);
+    renderQueueTable(status.waiting || []);
+    renderControls(status.settings);
+    renderComps(
+      status.components,
+      (status.settings && status.settings.componentLowStock != null)
+        ? status.settings.componentLowStock
+        : BuffBotSettingsDefaults.componentLowStock);
+
+    pollContributors(bot.botId);
+
+    var stats = status.stats || {};
+    renderTiles(stats, status.counters);
+    renderRefused(stats.refused);
+    renderRecent(status.recent);
+    drawHours(stats.hours, stats.startedUtc);
+  }
+
+  function schedulePoll(delay) {
+    pollTimer = setTimeout(poll, delay);
+  }
+
+  function poll() {
+    apiFetch("/api/bots").then(function (res) {
+      if (res.status === 401) { showAuthGate(); return null; }
+      if (!res.ok) throw new Error("http " + res.status);
+      return res.json();
+    }).then(function (data) {
+      if (!data) return;
+      hideOfflineBanner();
+      render(data);
+      schedulePoll(2000);
+    }).catch(function () {
+      showOfflineBanner();
+      schedulePoll(2000);
+    });
+  }
+
+  poll();
+})();
+</script>

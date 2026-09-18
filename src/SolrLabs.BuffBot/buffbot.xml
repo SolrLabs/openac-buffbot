@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The operator panel (operator-panel-unit-2), against the sketch in
+  working-files/design-operator-ui.md: current activity, the spell being cast, who is waiting, the
+  session counters, and the console button. One screen, no tabs — see that doc for why.
+  No mana bar: the client's own already shows it, so this panel does not duplicate it.
+
+  Layout is absolute pixels; there is no layout engine (MarkupDocument.cs). `list` has no built-in
+  header row, so the "Waiting"/"asked for"/"waiting" labels above it are hand-positioned, the same
+  way mosstank.xml fakes its own column headers.
+-->
+<!--
+  The web console row (web-console-live brief, unit 5b) shows the link as a `label`, not the
+  `field` the brief sketched: a `<field>`'s `text` is set once, when the panel is built, and never
+  re-read afterward (MarkupDocument.cs's `field` case calls `SetText` directly rather than storing
+  a live `TextSource` the way `label`, `button` and `toggle` do), and there is no `editable` or
+  `selectable` attribute a plugin can put on one either. A field bound to the link would show
+  whatever the mesh's state happened to be at panel-build time — almost always blank, since that
+  is well before the node has even started — and could never correct itself. A label stays live
+  and correct instead; the Open button below it is what actually gets an operator to the console.
+-->
+<panel x="28" y="42" w="404" h="360" title="OpenAC Buffbot">
+  <label x="8"   y="24" w="176" text="{EnabledLabel}"  color="#FFE8DEC3" />
+  <label x="192" y="24" w="106" text="{ActivityLabel}" color="#FFE8DEC3" />
+  <button x="330" y="22" w="66" h="18" text="{EnableToggleLabel}" onclick="{ToggleEnabled}"
+          tooltip="Switches this character's bot on or off — the same as /buffbot on or /buffbot off." />
+
+  <icon  x="8"   y="46" w="24" h="24" spell="{CurrentSpellId}" />
+  <label x="40"  y="50" w="176" text="{SpellLineLabel}" color="#FFC7B98F" />
+  <label x="220" y="50" w="176" text="{StepLabel}"      color="#FFC7B98F" />
+
+  <label x="8"   y="80" w="132" text="Waiting"   color="#FFE8DEC3" />
+  <label x="140" y="80" w="120" text="asked for" color="#FFE8DEC3" />
+  <label x="264" y="80" w="80"  text="waiting"   color="#FFE8DEC3" />
+  <list x="8" y="96" w="384" h="120" rowheight="17"
+        selected="{SelectedWaitingIndex}" onchange="{SelectWaitingRow}">
+    <column type="text" width="132" items="{WaitingNames}" />
+    <column type="text" width="120" items="{WaitingArchetypes}" />
+    <column type="text" width="*"   items="{WaitingTimes}" />
+  </list>
+
+  <label x="8" y="226" w="384" text="{CountersLabel}" color="#FFC7B98F" />
+
+  <label x="8" y="260" w="384" text="{ConsoleStateLabel}" color="#FFC7B98F" />
+  <label x="8" y="280" w="384" text="{ConsoleAddress}"     color="#FFE8DEC3" />
+  <button x="8" y="302" w="150" h="24" text="Open web console" onclick="{OpenConsole}"
+          enabled="{HasConsoleLink}"
+          tooltip="Opens the mesh console in your browser. Read-only until the mesh decides a link." />
+</panel>

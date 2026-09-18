@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <Version>0.1.0</Version>
+
+    <!-- Where a sibling OpenAC checkout lives. Override with -p:AcDreamSource=... or an
+         environment/MSBuild property when your layout differs. -->
+    <AcDreamSource Condition="'$(AcDreamSource)' == ''">$(MSBuildThisFileDirectory)../OpenAC</AcDreamSource>
+  </PropertyGroup>
+</Project>
