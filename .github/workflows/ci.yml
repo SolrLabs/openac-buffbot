@@ -77,4 +77,6 @@ jobs:
           path: |
             BuffBot/artifacts/*.zip
             BuffBot/artifacts/*.zip.sha256
+            BuffBot/artifacts/plugin.json
+            BuffBot/artifacts/icon.png
           if-no-files-found: error

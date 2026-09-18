@@ -74,8 +74,11 @@ jobs:
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           openac=$(git -C ../OpenAC rev-parse --short HEAD)
-          gh release create "$GITHUB_REF_NAME" \
-            artifacts/*.zip artifacts/*.zip.sha256 artifacts/plugin.json artifacts/icon.png \
+          # All four are what the launcher reads: it fetches plugin.json and the icon before the
+          # zip, and refuses an install when either is missing or differs from the zip's copy.
+          assets=(artifacts/*.zip artifacts/*.zip.sha256 artifacts/plugin.json)
+          [ -f artifacts/icon.png ] && assets+=(artifacts/icon.png)
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --title "BuffBot $GITHUB_REF_NAME" \
             --notes "Built against OpenAC \`$OPENAC_REF\` @ \`$openac\`. Install through the OpenAC launcher, or unzip into the client's \`plugins/solrlabs.buffbot/\`. See CHANGELOG.md." \
             $prerelease
