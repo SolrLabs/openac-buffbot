@@ -64,11 +64,11 @@ public sealed class MeshServerRoutingTests
     {
         var (server, _, sinkCommands) = NewServer();
 
-        (int status, string body) = Send(server, PostCommand(HubBotId, "{\"kind\":\"drain\"}"));
+        (int status, string body) = Send(server, PostCommand(HubBotId, "{\"kind\":\"unwedge\"}"));
 
         Assert.Equal(202, status);
         Assert.Equal("{\"accepted\":true}", body);
-        Assert.Equal(MeshCommandKind.Drain, Assert.Single(sinkCommands).Kind);
+        Assert.Equal(MeshCommandKind.Unwedge, Assert.Single(sinkCommands).Kind);
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public sealed class MeshServerRoutingTests
     {
         var (server, _, _) = NewServer();
 
-        (int status, _) = Send(server, PostCommand("nobody/9", "{\"kind\":\"drain\"}"));
+        (int status, _) = Send(server, PostCommand("nobody/9", "{\"kind\":\"unwedge\"}"));
 
         Assert.Equal(404, status);
     }

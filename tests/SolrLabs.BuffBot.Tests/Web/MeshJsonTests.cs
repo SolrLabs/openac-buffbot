@@ -208,6 +208,16 @@ public sealed class MeshJsonTests
     }
 
     [Fact]
+    public void ParsesAnUnwedgeCommandWithNoObjectId()
+    {
+        MeshCommand? command = MeshJson.TryParseCommand("{\"kind\":\"unwedge\"}");
+
+        Assert.NotNull(command);
+        Assert.Equal(MeshCommandKind.Unwedge, command!.Kind);
+        Assert.Null(command.ObjectId);
+    }
+
+    [Fact]
     public void ParsesAnEnableCommandWithNoObjectId()
     {
         MeshCommand? command = MeshJson.TryParseCommand("{\"kind\":\"enable\"}");
@@ -500,7 +510,7 @@ public sealed class MeshJsonTests
     [Fact]
     public void HeartbeatResponseRoundTripsCommands()
     {
-        IReadOnlyList<MeshCommand> commands = [new MeshCommand(MeshCommandKind.Mute, 7u), new MeshCommand(MeshCommandKind.Drain, null)];
+        IReadOnlyList<MeshCommand> commands = [new MeshCommand(MeshCommandKind.Mute, 7u), new MeshCommand(MeshCommandKind.Unwedge, null)];
 
         string json = MeshJson.HeartbeatResponse(commands);
         IReadOnlyList<MeshCommand>? parsed = MeshJson.TryParseHeartbeatResponse(json);

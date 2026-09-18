@@ -2,7 +2,7 @@
 <!--
   The operator panel (operator-panel-unit-2), against the sketch in
   working-files/design-operator-ui.md: current activity, the spell being cast, who is waiting, the
-  session counters, and the console button. One screen, no tabs — see that doc for why.
+  session counters, and the Unwedge/console buttons. One screen, no tabs — see that doc for why.
   No mana bar: the client's own already shows it, so this panel does not duplicate it.
 
   Layout is absolute pixels; there is no layout engine (MarkupDocument.cs). `list` has no built-in
@@ -41,9 +41,12 @@
 
   <label x="8" y="226" w="384" text="{CountersLabel}" color="#FFC7B98F" />
 
-  <label x="8" y="260" w="384" text="{ConsoleStateLabel}" color="#FFC7B98F" />
-  <label x="8" y="280" w="384" text="{ConsoleAddress}"     color="#FFE8DEC3" />
-  <button x="8" y="302" w="150" h="24" text="Open web console" onclick="{OpenConsole}"
+  <button x="157" y="248" w="90" h="24" text="Unwedge" onclick="{Unwedge}"
+          tooltip="Clears the queue and lifts every mute, manual ones included. No confirm." />
+
+  <label x="8" y="284" w="384" text="{ConsoleStateLabel}" color="#FFC7B98F" />
+  <label x="8" y="304" w="384" text="{ConsoleAddress}"     color="#FFE8DEC3" />
+  <button x="8" y="326" w="150" h="24" text="Open web console" onclick="{OpenConsole}"
           enabled="{HasConsoleLink}"
           tooltip="Opens the mesh console in your browser. Read-only until the mesh decides a link." />
 </panel>

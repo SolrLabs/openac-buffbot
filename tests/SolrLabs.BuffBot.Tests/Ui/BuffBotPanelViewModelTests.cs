@@ -81,7 +81,7 @@ public sealed class BuffBotPanelViewModelTests
     public void ToggleEnabledAsksToEnableWhileInert()
     {
         var calls = new List<bool>();
-        var panel = new BuffBotPanelViewModel(setEnabled: calls.Add);
+        var panel = new BuffBotPanelViewModel(static () => { }, setEnabled: calls.Add);
 
         panel.ToggleEnabled();
 
@@ -92,7 +92,7 @@ public sealed class BuffBotPanelViewModelTests
     public void ToggleEnabledAsksToDisableOnceEnabled()
     {
         var calls = new List<bool>();
-        var panel = new BuffBotPanelViewModel(setEnabled: calls.Add);
+        var panel = new BuffBotPanelViewModel(static () => { }, setEnabled: calls.Add);
         panel.UpdateStatus(StatusWith(currentMana: 0, maxMana: 0)); // Enabled: true
 
         panel.ToggleEnabled();
@@ -109,6 +109,17 @@ public sealed class BuffBotPanelViewModelTests
         panel.SelectWaitingRow(0);
 
         Assert.Equal(0, panel.SelectedWaitingIndex);
+    }
+
+    [Fact]
+    public void UnwedgeInvokesTheDelegateItWasGivenAndNothingElse()
+    {
+        int calls = 0;
+        var panel = new BuffBotPanelViewModel(() => calls++);
+
+        panel.Unwedge();
+
+        Assert.Equal(1, calls);
     }
 
     [Fact]
@@ -169,7 +180,7 @@ public sealed class BuffBotPanelViewModelTests
     public void OpenConsoleLaunchesTheExactCurrentLink()
     {
         var launcher = new FakeBrowserLauncher();
-        var panel = new BuffBotPanelViewModel(launcher: launcher);
+        var panel = new BuffBotPanelViewModel(static () => { }, launcher: launcher);
         panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/?token=abc"));
 
         panel.OpenConsole();
@@ -187,7 +198,7 @@ public sealed class BuffBotPanelViewModelTests
     private static void AssertOpenConsoleDoesNotLaunch(MeshConsoleState state)
     {
         var launcher = new FakeBrowserLauncher();
-        var panel = new BuffBotPanelViewModel(launcher: launcher);
+        var panel = new BuffBotPanelViewModel(static () => { }, launcher: launcher);
         panel.UpdateConsole(new MeshConsoleLink(state, Link: null));
 
         panel.OpenConsole();
@@ -200,7 +211,7 @@ public sealed class BuffBotPanelViewModelTests
     {
         var launcher = new FakeBrowserLauncher { ThrowOnOpen = new InvalidOperationException("no default browser") };
         var warnings = new List<string>();
-        var panel = new BuffBotPanelViewModel(logWarn: warnings.Add, launcher: launcher);
+        var panel = new BuffBotPanelViewModel(static () => { }, logWarn: warnings.Add, launcher: launcher);
         panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/?token=abc"));
 
         Exception? exception = Record.Exception(() => panel.OpenConsole());
@@ -224,7 +235,7 @@ public sealed class BuffBotPanelViewModelTests
     }
 
     private static BuffBotPanelViewModel NewPanel(FakeClock? clock = null) =>
-        new(clock: clock ?? new FakeClock());
+        new(static () => { }, clock: clock ?? new FakeClock());
 
     private static BuffBotStatus StatusWith(uint currentMana, uint maxMana) => new(
         Enabled: true,

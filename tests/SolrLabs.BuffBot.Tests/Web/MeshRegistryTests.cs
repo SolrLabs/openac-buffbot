@@ -89,7 +89,7 @@ public sealed class MeshRegistryTests
         var registry = NewRegistry(out _);
         registry.Report("world/2", "Bob", "world", isHub: false, Empty);
 
-        registry.EnqueueCommand("world/2", new MeshCommand(MeshCommandKind.Drain, null));
+        registry.EnqueueCommand("world/2", new MeshCommand(MeshCommandKind.Unwedge, null));
 
         IReadOnlyList<MeshCommand> first = registry.DrainCommands("world/2");
         Assert.Single(first);
@@ -114,7 +114,7 @@ public sealed class MeshRegistryTests
     {
         var registry = NewRegistry(out _);
 
-        registry.EnqueueCommand("nobody/1", new MeshCommand(MeshCommandKind.Drain, null));
+        registry.EnqueueCommand("nobody/1", new MeshCommand(MeshCommandKind.Unwedge, null));
 
         Assert.False(registry.Exists("nobody/1"));
     }

@@ -31,6 +31,7 @@ internal sealed class BuffBotPanelViewModel
         Stats: EmptyStats.Session,
         Recent: EmptyStats.Recent);
 
+    private readonly Action _performUnwedge;
     private readonly Action<bool> _setEnabled;
     private readonly IClock _clock;
     private readonly Action<string> _logWarn;
@@ -42,12 +43,14 @@ internal sealed class BuffBotPanelViewModel
     private int _selectedWaitingIndex = -1;
 
     internal BuffBotPanelViewModel(
+        Action performUnwedge,
         Action<bool>? setEnabled = null,
         IClock? clock = null,
         Action<string>? logWarn = null,
         IBrowserLauncher? launcher = null,
         BotStats? stats = null)
     {
+        _performUnwedge = performUnwedge;
         _setEnabled = setEnabled ?? (static _ => { });
         _clock = clock ?? SystemClock.Instance;
         _logWarn = logWarn ?? (static _ => { });
@@ -109,6 +112,8 @@ internal sealed class BuffBotPanelViewModel
                 + $"step-downs {counters.TierStepDowns}";
         }
     }
+
+    public Action Unwedge => _performUnwedge;
 
     public string ConsoleStateLabel => _console.State switch
     {

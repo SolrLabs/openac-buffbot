@@ -2,7 +2,7 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
-## 0.1.0-beta.1 — 2026-09-17
+## 0.1.0-beta.2 — 2026-09-17
 
 First public build. Everything below is new.
 
