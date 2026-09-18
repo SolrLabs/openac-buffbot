@@ -67,8 +67,13 @@ fi
 rm -f "$dist/$name.zip" "$dist/$name.zip.sha256"
 (cd "$stage" && zip -qX -r "$dist/$name.zip" .)
 (cd "$dist" && shasum -a 256 "$name.zip" > "$name.zip.sha256")
+
+# The launcher reads plugin.json and icon.png from the release itself, before it fetches the zip,
+# and refuses an install when either differs from the zip's own copy.
+cp "$stage/plugin.json" "$dist/plugin.json"
+[ -f "$stage/icon.png" ] && cp "$stage/icon.png" "$dist/icon.png"
 rm -rf "$stage"
 
-echo "packaged: $dist/$name.zip"
+echo "packaged: $dist/$name.zip, with plugin.json and icon.png beside it"
 unzip -l "$dist/$name.zip"
 cat "$dist/$name.zip.sha256"
