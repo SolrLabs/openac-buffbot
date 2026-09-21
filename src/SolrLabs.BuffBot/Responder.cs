@@ -2,6 +2,7 @@ using AcDream.Plugin.Abstractions;
 using SolrLabs.BuffBot.Components;
 using SolrLabs.BuffBot.Guard;
 using SolrLabs.BuffBot.Policy;
+using SolrLabs.BuffBot.Portals;
 using SolrLabs.BuffBot.Requests;
 using SolrLabs.BuffBot.Spells;
 using SolrLabs.BuffBot.Stats;
@@ -25,9 +26,15 @@ internal sealed class Responder
     private readonly Func<string, bool> _nothingLearnedFor;
     private readonly Func<uint, bool> _stopActiveRun;
     private readonly Func<ContributionSummary> _contributionSummary;
+    private readonly Func<PortalTieSlot, PortalTie> _portalTieFor;
+    private readonly Func<PortalTieSlot, bool> _knowsPortalSpell;
+    private readonly Func<PortalRequest, EnqueueResult> _enqueuePortal;
+    private readonly Func<uint, bool> _hasPendingPortal;
+    private readonly Func<uint, int?> _portalPosition;
+    private readonly Func<uint, bool> _cancelPortal;
 
     /// <summary><paramref name="nothingLearnedFor"/> is checked before enqueuing so a doomed
-    /// request is refused before the ack.</summary>
+    /// request is refused before the ack; the portal delegates play the same role.</summary>
     internal Responder(
         VocabularyTable vocabulary,
         AccessPolicy policy,
@@ -40,7 +47,13 @@ internal sealed class Responder
         Func<bool>? intakePaused = null,
         Func<string, bool>? nothingLearnedFor = null,
         Func<uint, bool>? stopActiveRun = null,
-        Func<ContributionSummary>? contributionSummary = null)
+        Func<ContributionSummary>? contributionSummary = null,
+        Func<PortalTieSlot, PortalTie>? portalTieFor = null,
+        Func<PortalTieSlot, bool>? knowsPortalSpell = null,
+        Func<PortalRequest, EnqueueResult>? enqueuePortal = null,
+        Func<uint, bool>? hasPendingPortal = null,
+        Func<uint, int?>? portalPosition = null,
+        Func<uint, bool>? cancelPortal = null)
     {
         _vocabulary = vocabulary;
         _policy = policy;
@@ -54,6 +67,12 @@ internal sealed class Responder
         _nothingLearnedFor = nothingLearnedFor ?? (static _ => false);
         _stopActiveRun = stopActiveRun ?? (static _ => false);
         _contributionSummary = contributionSummary ?? (static () => ContributionSummary.Unavailable);
+        _portalTieFor = portalTieFor ?? (static _ => PortalTie.Empty);
+        _knowsPortalSpell = knowsPortalSpell ?? (static _ => false);
+        _enqueuePortal = enqueuePortal ?? (static _ => EnqueueResult.QueueFull);
+        _hasPendingPortal = hasPendingPortal ?? (static _ => false);
+        _portalPosition = portalPosition ?? (static _ => null);
+        _cancelPortal = cancelPortal ?? (static _ => false);
     }
 
     /// <summary><paramref name="tell"/>'s sender is passed through exactly as received, never
@@ -83,7 +102,7 @@ internal sealed class Responder
 
         return intent switch
         {
-            Intent.Help => DefaultReplies.Help(_vocabulary),
+            Intent.Help => DefaultReplies.Help(_vocabulary, PortalsOffered()),
             Intent.Status => DefaultReplies.Status(_version, tellsAnswered),
             Intent.Buffs => Enqueue(tell, DefaultSpellSets.Buff),
             Intent.Prots => Enqueue(tell, DefaultSpellSets.Prots),
@@ -100,9 +119,49 @@ internal sealed class Responder
             Intent.Position => Position(tell),
             Intent.Cancel => Cancel(tell),
             Intent.Contribute => DefaultReplies.Contribute(_contributionSummary()),
+            Intent.Where => Where(),
+            Intent.PortalPrimary => EnqueuePortal(tell, PortalTieSlot.Primary),
+            Intent.PortalSecondary => EnqueuePortal(tell, PortalTieSlot.Secondary),
             _ => DefaultReplies.Unresolved,
         };
     }
+
+    private bool PortalsOffered() =>
+        _portalTieFor(PortalTieSlot.Primary).IsOffered || _portalTieFor(PortalTieSlot.Secondary).IsOffered;
+
+    private string Where() =>
+        DefaultReplies.Where(
+            _portalTieFor(PortalTieSlot.Primary).Description, _portalTieFor(PortalTieSlot.Secondary).Description);
+
+    /// <summary>Mirrors <see cref="Enqueue"/>'s "refuse before acking" shape; a second ask while
+    /// already pending still reaches <see cref="_enqueuePortal"/>, which answers that itself.</summary>
+    private string EnqueuePortal(PluginChatMessage tell, PortalTieSlot slot)
+    {
+        if (_intakePaused())
+            return DefaultReplies.IntakePaused;
+
+        if (!_portalTieFor(slot).IsOffered)
+            return DefaultReplies.PortalNotOffered;
+
+        if (!_knowsPortalSpell(slot))
+            return DefaultReplies.CantSummonYet;
+
+        EnqueueResult result = _enqueuePortal(new PortalRequest(tell.SenderObjectId, tell.Sender, slot));
+        return result switch
+        {
+            EnqueueResult.Enqueued => PortalStartingReply(tell.SenderObjectId),
+            EnqueueResult.AlreadyQueued => DefaultReplies.AlreadyQueued,
+            EnqueueResult.QueueFull => DefaultReplies.QueueFull,
+            _ => DefaultReplies.Unresolved,
+        };
+    }
+
+    /// <summary>The portal lane always cuts in ahead of any buff chain, so 0 ahead reads as
+    /// starting now rather than "you're next" the way a buff queue's own position does.</summary>
+    private string PortalStartingReply(uint requesterObjectId) =>
+        _portalPosition(requesterObjectId) is { } ahead && ahead > 0
+            ? DefaultReplies.Queued(ahead)
+            : DefaultReplies.Starting;
 
     private string Enqueue(PluginChatMessage tell, string setName)
     {
@@ -162,20 +221,28 @@ internal sealed class Responder
     }
 
     /// <summary>Cheap to ask and easy to spam, so this rides through the same <see
-    /// cref="LoopGuard.Admit"/> call every other reply does.</summary>
+    /// cref="LoopGuard.Admit"/> call every other reply does. A buff standing takes precedence.</summary>
     private string Position(PluginChatMessage tell)
     {
         QueueStanding standing = _queue.TryGetStanding(tell.SenderObjectId, out int aheadCount);
-        return standing switch
+        if (standing != QueueStanding.NotQueued)
         {
-            QueueStanding.Active => DefaultReplies.BeingServedNow,
-            QueueStanding.Waiting => DefaultReplies.Position(aheadCount),
-            _ => DefaultReplies.NotInLine,
-        };
+            return standing == QueueStanding.Active
+                ? DefaultReplies.BeingServedNow
+                : DefaultReplies.Position(aheadCount);
+        }
+
+        if (!_hasPendingPortal(tell.SenderObjectId))
+            return DefaultReplies.NotInLine;
+
+        // Null means already dequeued into the running summon, same as a buff queue's own Active.
+        return _portalPosition(tell.SenderObjectId) is { } portalAhead
+            ? DefaultReplies.Position(portalAhead)
+            : DefaultReplies.BeingServedNow;
     }
 
-    /// <summary>The active recipient's run is asked to stop once the cast already in the air
-    /// resolves, via <see cref="_stopActiveRun"/>.</summary>
+    /// <summary>The active recipient's run is asked to stop via <see cref="_stopActiveRun"/>; a
+    /// pending portal is tried only once the buff queue has nothing for this sender.</summary>
     private string Cancel(PluginChatMessage tell)
     {
         QueueStanding standing = _queue.TryGetStanding(tell.SenderObjectId, out _);
@@ -186,8 +253,9 @@ internal sealed class Responder
                 : DefaultReplies.AlreadyBeingServed; // race: no longer active by the time this ran
         }
 
-        return _queue.TryCancel(tell.SenderObjectId)
-            ? DefaultReplies.RemovedFromLine
-            : DefaultReplies.NotInLine;
+        if (_queue.TryCancel(tell.SenderObjectId))
+            return DefaultReplies.RemovedFromLine;
+
+        return _cancelPortal(tell.SenderObjectId) ? DefaultReplies.RemovedFromLine : DefaultReplies.NotInLine;
     }
 }

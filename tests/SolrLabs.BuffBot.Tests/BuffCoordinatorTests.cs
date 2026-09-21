@@ -2,6 +2,7 @@ using AcDream.Plugin.Abstractions;
 using SolrLabs.BuffBot.Casting;
 using SolrLabs.BuffBot.Chat;
 using SolrLabs.BuffBot.Components;
+using SolrLabs.BuffBot.Portals;
 using SolrLabs.BuffBot.Requests;
 using SolrLabs.BuffBot.Spells;
 using SolrLabs.BuffBot.Stats;
@@ -1014,7 +1015,7 @@ public sealed class BuffCoordinatorTests
         var (coordinator, _, replies) = NewCoordinator(queue, NoSelfSpellSets());
         Pump(coordinator, [], enabled: true, replies); // dequeues and serves Archer only
 
-        IReadOnlyList<BuffRequest> drained = coordinator.RequestStopForDisable();
+        (IReadOnlyList<BuffRequest> drained, _) = coordinator.RequestStopForDisable();
 
         Assert.Equal([SecondRequesterId], drained.Select(r => r.RequesterObjectId));
         Assert.True(coordinator.HasActiveRequester); // Archer's own run is still in flight
@@ -1044,6 +1045,884 @@ public sealed class BuffCoordinatorTests
     [Fact]
     public void HasActiveRequesterIsFalseWhenNothingIsQueuedOrRunning() =>
         Assert.False(NewCoordinator(new RequestQueue(5)).Coordinator.HasActiveRequester);
+
+    // -- portal cut-in: suspend and resume -------------------------------------------------------
+
+    private const uint ThirdSpellId = 44;
+    private const uint ThirdFamily = 12;
+    private const uint FourthSpellId = 45;
+    private const uint FourthFamily = 13;
+    private const uint FifthSpellId = 46;
+    private const uint FifthFamily = 14;
+    private const uint SixthSpellId = 47;
+    private const uint SixthFamily = 15;
+
+    /// <summary>Five learned target lines, no self line, so a suspend after two of them still has
+    /// three ahead of it to prove were never sent before resume, and none repeated after.</summary>
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> FiveLineSpellSets() =>
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultSpellSets.Self] = Array.Empty<string>(),
+            [DefaultSpellSets.Buff] =
+                ["Strength Other", "Endurance Other", "Quickness Other", "Coordination Other", "Focus Other"],
+        };
+
+    private static List<PluginSpellInfo> FiveLineCatalog() =>
+        [
+            .. TwoLineCatalog(),
+            new(
+                SpellId: ThirdSpellId, Name: "Quickness Other I", Family: ThirdFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+            new(
+                SpellId: FourthSpellId, Name: "Coordination Other I", Family: FourthFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+            new(
+                SpellId: FifthSpellId, Name: "Focus Other I", Family: FifthFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+        ];
+
+    /// <summary>A sixth line beyond FiveLine, so a chain can be suspended twice with lines still
+    /// ahead of it each time.</summary>
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> SixLineSpellSets() =>
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultSpellSets.Self] = Array.Empty<string>(),
+            [DefaultSpellSets.Buff] =
+            [
+                "Strength Other", "Endurance Other", "Quickness Other", "Coordination Other",
+                "Focus Other", "Life Other",
+            ],
+        };
+
+    private static List<PluginSpellInfo> SixLineCatalog() =>
+        [
+            .. FiveLineCatalog(),
+            new(
+                SpellId: SixthSpellId, Name: "Life Other I", Family: SixthFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+        ];
+
+    [Fact]
+    public void InterruptWaitsForTheCastInFlight()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+        Assert.Equal([OtherSpellId], magic.SentSpellIds);
+
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        // The cast already in the air still landed, but Endurance Other was never attempted.
+        Assert.Equal([OtherSpellId], magic.SentSpellIds);
+        Assert.True(coordinator.IsInterrupted);
+        Assert.Empty(replies); // held, not finished -- no closing reply yet
+    }
+
+    [Fact]
+    public void ResumeCastsOnlyTheRemainingLines()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // sends Endurance Other
+
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        // Endurance Other lands, then the run suspends before Quickness Other is ever sent.
+        Pump(coordinator, [Confirm("Endurance Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        Assert.True(coordinator.IsInterrupted);
+        Assert.Equal([OtherSpellId, EnduranceSpellId], magic.SentSpellIds);
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Quickness Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: ThirdSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Quickness Other I", RequesterName)], enabled: true, replies, catalog: catalog); // sends Coordination Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: FourthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Coordination Other I", RequesterName)], enabled: true, replies, catalog: catalog); // sends Focus Other
+
+        Assert.Equal(
+            [OtherSpellId, EnduranceSpellId, ThirdSpellId, FourthSpellId, FifthSpellId], magic.SentSpellIds);
+        // No spell id crosses the interrupt/resume seam twice.
+        Assert.Equal(magic.SentSpellIds.Count, magic.SentSpellIds.Distinct().Count());
+    }
+
+    [Fact]
+    public void ResumedRunClosesWithTheWholeCount()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Endurance Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: ThirdSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Quickness Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: FourthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Coordination Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 6, SpellId: FifthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Focus Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        string closing = Assert.Single(replies);
+        Assert.Equal("All set: cast 5 buffs.", closing);
+    }
+
+    [Fact]
+    public void ResumeAbandonsWhenTheBuffeeLeft()
+    {
+        const uint SecondRequesterId = 777;
+        const string SecondRequesterName = "Rogue";
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        queue.TryEnqueue(new BuffRequest(SecondRequesterId, SecondRequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // lands, then suspends
+        Assert.True(coordinator.IsInterrupted);
+
+        bool resumed = coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 999d, sendReply: (_, _, text) => replies.Add(text));
+
+        Assert.True(resumed);
+        Assert.False(coordinator.IsInterrupted);
+        Assert.False(coordinator.HasActiveRequester);
+        Assert.Equal([DefaultReplies.OutOfRange], replies);
+
+        // The queue moves on: Rogue is dequeued and served next.
+        magic.IsCasting = false; // the server's own use-done for Archer's just-confirmed cast
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog);
+        Assert.Equal([OtherSpellId, OtherSpellId], magic.SentSpellIds);
+    }
+
+    [Fact]
+    public void InterruptWhileIdleIsANoOp()
+    {
+        var (coordinator, magic, replies) = NewCoordinator(new RequestQueue(5));
+
+        Assert.False(coordinator.RequestInterrupt());
+        Assert.False(coordinator.IsInterrupted);
+
+        // Not interruptible either: an idle self-buff run has no requester to cut in ahead of.
+        Pump(coordinator, [], enabled: true, replies, deltaSeconds: 59);
+        Pump(coordinator, [], enabled: true, replies, deltaSeconds: 2); // crosses the interval, sends the self cast
+        Assert.True(magic.LastRequestWasSelfTargeted);
+
+        Assert.False(coordinator.RequestInterrupt());
+        Assert.False(coordinator.IsInterrupted);
+    }
+
+    [Fact]
+    public void ACancelBeforeInterruptKeepsTheCancelAndIsNeverResumed()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+
+        Assert.True(coordinator.TryStopActiveRun(RequesterId, RunStopReason.RequesterCancelled));
+        Assert.False(coordinator.RequestInterrupt()); // the pending cancel wins; the cut-in is refused
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        Assert.Equal([DefaultReplies.ClosingStopped(RunStopReason.RequesterCancelled)], replies);
+        Assert.False(coordinator.IsInterrupted);
+        Assert.False(coordinator.ResumeSuspended(static _ => 10d, static (_, _, _) => { }));
+    }
+
+    [Fact]
+    public void ResumeCarriesTheManaUpkeepPlanSoAShortfallStillBounces()
+    {
+        const uint ManaSpellFamily = 900;
+        const uint ManaSpellId = 901;
+        const uint RevitalizeFamily = 901;
+        const uint RevitalizeSpellId = 902;
+
+        var character = new FakeCharacter { CurrentMana = 200 };
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+
+        var magic = new FakeMagic();
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic };
+        var enchantments = new FakeEnchantments();
+
+        var spellSets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultSpellSets.Self] = Array.Empty<string>(),
+            [DefaultSpellSets.Buff] = ["Strength Other", "Endurance Other"],
+            [DefaultSpellSets.ManaUpkeep] = DefaultSpellSets.Table[DefaultSpellSets.ManaUpkeep],
+        };
+        var coordinator = new BuffCoordinator(
+            queue, magic, enchantments, items, equipment, combat, spellSets, character: character);
+
+        List<PluginSpellInfo> catalog =
+        [
+            new(
+                SpellId: OtherSpellId, Name: "Strength Other I", Family: OtherFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+            new(
+                SpellId: EnduranceSpellId, Name: "Endurance Other I", Family: EnduranceFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 150, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+            new(
+                SpellId: ManaSpellId, Name: "Stamina to Mana Self I", Family: ManaSpellFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 0f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+            new(
+                SpellId: RevitalizeSpellId, Name: "Revitalize Self I", Family: RevitalizeFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 0f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        ];
+
+        List<string> replies = [];
+        void Pump(IReadOnlyList<PluginChatMessage> messages) => coordinator.Pump(
+            0, catalog, activeEnchantments: [], messages, selfBuffingEnabled: true,
+            distanceToRequester: static _ => 10d,
+            sendReply: (_, _, text) => replies.Add(text));
+
+        Pump([]); // sends Strength Other
+        Assert.True(coordinator.RequestInterrupt());
+
+        character.CurrentMana = 50; // not enough for Endurance Other's 150
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump([Confirm("Strength Other I", RequesterName)]); // lands, then suspends before Endurance Other
+        Assert.True(coordinator.IsInterrupted);
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Pump([]); // Endurance Other can't be afforded -- bounces instead of failing outright
+        Assert.Equal([OtherSpellId, ManaSpellId], magic.SentSpellIds);
+        Assert.True(magic.LastRequestWasSelfTargeted);
+
+        character.CurrentMana = 170; // clears the high mark in one cycle
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: ManaSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump([SelfConfirm("Stamina to Mana Self I")]); // sends Revitalize Self
+        Assert.Equal([OtherSpellId, ManaSpellId, RevitalizeSpellId], magic.SentSpellIds);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: RevitalizeSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump([SelfConfirm("Revitalize Self I")]); // window closes; Endurance Other goes out the same tick
+        Assert.Equal([OtherSpellId, ManaSpellId, RevitalizeSpellId, EnduranceSpellId], magic.SentSpellIds);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump([Confirm("Endurance Other I", RequesterName)]);
+
+        string closing = Assert.Single(replies);
+        Assert.Equal("All set: cast 4 buffs.", closing);
+    }
+
+    [Fact]
+    public void ResumeDropsAnIncompleteRefillFromTheRemainingPlan()
+    {
+        const uint ManaSpellFamily = 900;
+        const uint ManaSpellId = 901;
+        const uint RevitalizeFamily = 901;
+        const uint RevitalizeSpellId = 902;
+
+        var character = new FakeCharacter { CurrentMana = 50 };
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+
+        var magic = new FakeMagic();
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic };
+        var enchantments = new FakeEnchantments();
+
+        var spellSets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultSpellSets.Self] = Array.Empty<string>(),
+            [DefaultSpellSets.Buff] = ["Strength Other", "Endurance Other"],
+            [DefaultSpellSets.ManaUpkeep] = DefaultSpellSets.Table[DefaultSpellSets.ManaUpkeep],
+        };
+        var coordinator = new BuffCoordinator(
+            queue, magic, enchantments, items, equipment, combat, spellSets, character: character);
+
+        List<PluginSpellInfo> catalog =
+        [
+            new(
+                SpellId: OtherSpellId, Name: "Strength Other I", Family: OtherFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+            new(
+                SpellId: EnduranceSpellId, Name: "Endurance Other I", Family: EnduranceFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 150, DurationSeconds: 120f, School: 0, Description: string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+            new(
+                SpellId: ManaSpellId, Name: "Stamina to Mana Self I", Family: ManaSpellFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 0f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+            new(
+                SpellId: RevitalizeSpellId, Name: "Revitalize Self I", Family: RevitalizeFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 0f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        ];
+
+        List<string> replies = [];
+        void Pump(IReadOnlyList<PluginChatMessage> messages) => coordinator.Pump(
+            0, catalog, activeEnchantments: [], messages, selfBuffingEnabled: true,
+            distanceToRequester: static _ => 10d,
+            sendReply: (_, _, text) => replies.Add(text));
+
+        Pump([]); // sends Strength Other; mana is already too low for Endurance Other
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump([Confirm("Strength Other I", RequesterName)]); // lands; bounces for Endurance Other, sends Stamina to Mana Self
+        Assert.Equal([OtherSpellId, ManaSpellId], magic.SentSpellIds);
+
+        Assert.True(coordinator.RequestInterrupt()); // cuts in while Stamina to Mana Self is in flight
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: ManaSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump([SelfConfirm("Stamina to Mana Self I")]); // lands; suspends before Revitalize Self is ever sent
+        Assert.True(coordinator.IsInterrupted);
+        Assert.Equal([OtherSpellId, ManaSpellId], magic.SentSpellIds); // Revitalize Self never sent
+
+        character.CurrentMana = 200; // affordable now -- no new bounce needed on resume
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Pump([]); // sends Endurance Other directly -- the incomplete refill was dropped, not resumed
+        Assert.Equal([OtherSpellId, ManaSpellId, EnduranceSpellId], magic.SentSpellIds);
+        Assert.DoesNotContain(RevitalizeSpellId, magic.SentSpellIds);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump([Confirm("Endurance Other I", RequesterName)]);
+
+        string closing = Assert.Single(replies);
+        // Strength Other, the landed Stamina to Mana Self, and Endurance Other -- not the dropped Revitalize.
+        Assert.Equal("All set: cast 3 buffs.", closing);
+    }
+
+    [Fact]
+    public void StepsBeforeResumeDoNotLeakIntoTheNextRequesterAfterAnAbandonedResume()
+    {
+        const uint SecondRequesterId = 777;
+        const string SecondRequesterName = "Rogue";
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        queue.TryEnqueue(new BuffRequest(SecondRequesterId, SecondRequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // sends Endurance Other
+
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Endurance Other I", RequesterName)], enabled: true, replies, catalog: catalog); // lands, suspends
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Quickness Other
+
+        // Archer walks out of range mid-resume; the run is abandoned, never finished.
+        coordinator.Pump(
+            0, catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: _ => 999d,
+            sendReply: (_, _, text) => replies.Add(text));
+        Assert.Equal([DefaultReplies.OutOfRange], replies);
+        Assert.False(coordinator.HasActiveRequester);
+
+        // Rogue is served next; her own count must not include Archer's leftover steps.
+        magic.IsCasting = false; // the server's own use-done for Archer's abandoned cast
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // Rogue: sends Strength Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: OtherSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: EnduranceSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Endurance Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 6, SpellId: ThirdSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Quickness Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 7, SpellId: FourthSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Coordination Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 8, SpellId: FifthSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Focus Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
+
+        Assert.Equal("All set: cast 5 buffs.", replies[^1]);
+    }
+
+    [Fact]
+    public void CancellingAHeldChainEndsItAndTheQueueMovesOn()
+    {
+        const uint SecondRequesterId = 777;
+        const string SecondRequesterName = "Rogue";
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        queue.TryEnqueue(new BuffRequest(SecondRequesterId, SecondRequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // lands, suspends
+        Assert.True(coordinator.IsInterrupted);
+
+        Assert.True(coordinator.TryStopActiveRun(RequesterId, RunStopReason.RequesterCancelled));
+
+        magic.IsCasting = false; // the server's own use-done for Archer's just-confirmed cast
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // discharges the cancel, then Rogue dequeues
+
+        Assert.Equal([DefaultReplies.ClosingStopped(RunStopReason.RequesterCancelled)], replies);
+        Assert.False(coordinator.IsInterrupted);
+        Assert.False(coordinator.ResumeSuspended(static _ => 10d, static (_, _, _) => { }));
+        Assert.Equal(SecondRequesterId, coordinator.ActiveRequester!.Value.RequesterObjectId);
+    }
+
+    [Fact]
+    public void DisablingWhileAChainIsHeldEndsItAndReturnsItsRequest()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // lands, suspends
+        Assert.True(coordinator.IsInterrupted);
+
+        (IReadOnlyList<BuffRequest> drained, _) = coordinator.RequestStopForDisable();
+
+        Assert.Equal([RequesterId], drained.Select(r => r.RequesterObjectId));
+        Assert.False(coordinator.IsInterrupted);
+        Assert.False(coordinator.HasActiveRequester);
+        Assert.False(coordinator.ResumeSuspended(static _ => 10d, static (_, _, _) => { }));
+
+        // Nothing stays blocked afterward: a fresh request from the same player still dequeues.
+        magic.IsCasting = false; // the server's own use-done for Archer's just-confirmed cast
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog);
+        Assert.True(coordinator.HasActiveRequester);
+    }
+
+    [Fact]
+    public void ASecondSuspendKeepsTheFirstSuspendsStepsInTheClosingCount()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, SixLineSpellSets());
+        List<PluginSpellInfo> catalog = SixLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // sends Endurance Other
+
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        // Endurance Other lands, then the run suspends after two lines.
+        Pump(coordinator, [Confirm("Endurance Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        Assert.True(coordinator.IsInterrupted);
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Quickness Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: ThirdSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Quickness Other I", RequesterName)], enabled: true, replies, catalog: catalog); // sends Coordination Other
+
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: FourthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        // Coordination Other lands, then the run suspends a second time, after four lines.
+        Pump(coordinator, [Confirm("Coordination Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        Assert.True(coordinator.IsInterrupted);
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Focus Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 6, SpellId: FifthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Focus Other I", RequesterName)], enabled: true, replies, catalog: catalog); // sends Life Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 7, SpellId: SixthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Life Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        Assert.Equal(
+            [OtherSpellId, EnduranceSpellId, ThirdSpellId, FourthSpellId, FifthSpellId, SixthSpellId],
+            magic.SentSpellIds);
+        Assert.Equal(magic.SentSpellIds.Count, magic.SentSpellIds.Distinct().Count());
+        Assert.Equal("All set: cast 6 buffs.", replies[^1]);
+    }
+
+    [Fact]
+    public void ResumeHonoursAPendingStopInsteadOfResumingAndLeavesNoStaleReasonBehind()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // lands, suspends
+        Assert.True(coordinator.IsInterrupted);
+
+        Assert.True(coordinator.TryStopActiveRun(RequesterId, RunStopReason.RequesterCancelled));
+
+        // No Pump runs between the cancel and the resume attempt: the pending stop must still win.
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Assert.False(coordinator.IsInterrupted);
+        Assert.False(coordinator.HasActiveRequester);
+        Assert.Equal([DefaultReplies.ClosingStopped(RunStopReason.RequesterCancelled)], replies);
+        // Endurance Other was never sent: the held chain ended, it was not resumed.
+        Assert.Equal([OtherSpellId], magic.SentSpellIds);
+
+        // A brand-new suspend is not discharged with the stale cancel reason left behind.
+        replies.Clear();
+        magic.IsCasting = false; // the server's own use-done for the cancelled run's landed cast
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Strength Other again
+        Assert.True(coordinator.RequestInterrupt());
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // lands, suspends
+        Assert.True(coordinator.IsInterrupted);
+        Assert.Empty(replies); // no stale discharge fired on this Pump
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Endurance Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Endurance Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: ThirdSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Quickness Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 6, SpellId: FourthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Coordination Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 7, SpellId: FifthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Focus Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        Assert.Equal("All set: cast 5 buffs.", replies[^1]);
+    }
+
+    // -- portals ------------------------------------------------------------------------------
+
+    private const uint PortalRequesterId = 950;
+    private const string PortalRequesterName = "Wizard";
+
+    // Must be one of PortalSpellResolver's own Primary ids for the fake catalog below to resolve.
+    private const uint PortalSpellId = 157;
+    private const uint PortalFamily = 951;
+
+    private sealed class PortalCatalog : ISpellCatalog
+    {
+        public IReadOnlyList<PluginSpellInfo> KnownSelfBuffs { get; } = [];
+
+        public bool IsKnown(uint spellId) => spellId == PortalSpellId;
+
+        public bool TryGet(uint spellId, out PluginSpellInfo info)
+        {
+            if (spellId == PortalSpellId)
+            {
+                info = new(
+                    SpellId: PortalSpellId, Name: "Summon Primary Portal I", Family: PortalFamily, Tier: 1,
+                    Difficulty: 0, ManaCost: 150, DurationSeconds: 0f, School: 0, Description: string.Empty,
+                    IsSelfTargeted: true, IsBeneficial: true);
+                return true;
+            }
+            info = default;
+            return false;
+        }
+    }
+
+    private sealed class FakeFacing : IPortalFacing
+    {
+        internal List<float> FacedDegrees { get; } = [];
+
+        public float? CurrentHeading { get; set; }
+
+        public bool Face(float degrees)
+        {
+            FacedDegrees.Add(degrees);
+            CurrentHeading = degrees; // turns instantly - PortalRunTests covers the bounded wait itself
+            return true;
+        }
+    }
+
+    [Fact]
+    public void PortalCutsIntoAChainAndTheChainFinishes()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets(), catalog: new PortalCatalog());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // buff 1: Strength Other
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog); // buff 2: Endurance Other
+
+        Assert.Equal(
+            EnqueueResult.Enqueued,
+            coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary)));
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: EnduranceSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Endurance Other I", RequesterName)], enabled: true, replies, catalog: catalog); // lands, then cuts in
+        Assert.True(coordinator.IsInterrupted);
+        Assert.Equal([OtherSpellId, EnduranceSpellId], magic.SentSpellIds);
+
+        magic.IsCasting = false; // the server's own use-done for Endurance Other's just-confirmed cast
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // the portal: cast
+        Assert.Equal([OtherSpellId, EnduranceSpellId, PortalSpellId], magic.SentSpellIds);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: PortalSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog, deltaSeconds: 0.1); // completion observed
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog, deltaSeconds: 1.5); // grace clears - lands
+
+        magic.IsCasting = false; // the server's own use-done for the portal's own unconfirmed cast
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // buff 3: Quickness Other, resumed
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: ThirdSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Quickness Other I", RequesterName)], enabled: true, replies, catalog: catalog); // buff 4
+        magic.LastCompletion = new PluginCastCompletion(Revision: 6, SpellId: FourthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Coordination Other I", RequesterName)], enabled: true, replies, catalog: catalog); // buff 5
+        magic.LastCompletion = new PluginCastCompletion(Revision: 7, SpellId: FifthSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Focus Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+
+        Assert.Equal(
+            [OtherSpellId, EnduranceSpellId, PortalSpellId, ThirdSpellId, FourthSpellId, FifthSpellId],
+            magic.SentSpellIds);
+        Assert.Equal("All set: cast 5 buffs.", replies[^1]);
+    }
+
+    [Fact]
+    public void TwoPortalsRunBackToBackBeforeResume()
+    {
+        const uint SecondPortalRequesterId = 960;
+        const string SecondPortalRequesterName = "Sage";
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, FiveLineSpellSets(), catalog: new PortalCatalog());
+        List<PluginSpellInfo> catalog = FiveLineCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog);
+        Assert.True(coordinator.RequestInterrupt());
+
+        coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary));
+        coordinator.TryEnqueuePortal(
+            new PortalRequest(SecondPortalRequesterId, SecondPortalRequesterName, PortalTieSlot.Primary));
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies, catalog: catalog);
+        Assert.True(coordinator.IsInterrupted);
+
+        magic.IsCasting = false; // the server's own use-done for Strength Other's just-confirmed cast
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // portal 1: cast
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: PortalSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog, deltaSeconds: 0.1); // portal 1: completion observed
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog, deltaSeconds: 1.5); // portal 1: grace clears - lands
+        Assert.True(coordinator.HasPendingPortal(SecondPortalRequesterId)); // still waiting on portal 2
+
+        magic.IsCasting = false; // the server's own use-done for portal 1's own unconfirmed cast
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // portal 2: cast
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: PortalSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog, deltaSeconds: 0.1); // portal 2: completion observed
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog, deltaSeconds: 1.5); // portal 2: grace clears - lands
+        Assert.False(coordinator.HasPendingPortal(SecondPortalRequesterId));
+
+        // Two portal casts landed back-to-back before Endurance Other, the chain's own next line.
+        Assert.Equal([OtherSpellId, PortalSpellId, PortalSpellId], magic.SentSpellIds);
+        Assert.True(coordinator.IsInterrupted); // not resumed until this Pump
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // resumes: Endurance Other
+        Assert.Equal([OtherSpellId, PortalSpellId, PortalSpellId, EnduranceSpellId], magic.SentSpellIds);
+    }
+
+    [Fact]
+    public void CancelledPendingPortalNeverRuns()
+    {
+        var (coordinator, magic, replies) = NewCoordinator(new RequestQueue(5), catalog: new PortalCatalog());
+
+        Assert.Equal(
+            EnqueueResult.Enqueued,
+            coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary)));
+        Assert.True(coordinator.TryCancelPortal(PortalRequesterId));
+
+        Pump(coordinator, [], enabled: true, replies);
+
+        Assert.Empty(magic.SentSpellIds);
+        Assert.False(coordinator.HasPendingPortal(PortalRequesterId));
+        Assert.Null(coordinator.PortalPosition(PortalRequesterId));
+    }
+
+    [Fact]
+    public void OutOfRangePortalRequesterIsDropped()
+    {
+        var (coordinator, magic, replies) = NewCoordinator(new RequestQueue(5), catalog: new PortalCatalog());
+        coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary));
+
+        BuffBotStatus status = coordinator.Pump(
+            0, Catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: static _ => 999d,
+            sendReply: (_, _, text) => replies.Add(text));
+
+        Assert.Equal([DefaultReplies.OutOfRange], replies);
+        Assert.Empty(magic.SentSpellIds);
+        Assert.False(coordinator.HasPendingPortal(PortalRequesterId));
+        Assert.Equal(BotActivity.Idle, status.Activity);
+    }
+
+    [Fact]
+    public void PortalWaitsWhileTradeOpen()
+    {
+        var (coordinator, magic, replies) = NewCoordinator(new RequestQueue(5), catalog: new PortalCatalog());
+        coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary));
+
+        Pump(coordinator, [], enabled: true, replies, tradeOpen: true);
+        Assert.Empty(magic.SentSpellIds);
+        Assert.Empty(replies);
+        Assert.True(coordinator.HasPendingPortal(PortalRequesterId));
+
+        Pump(coordinator, [], enabled: true, replies, tradeOpen: false);
+        Assert.Equal([PortalSpellId], magic.SentSpellIds);
+    }
+
+    [Fact]
+    public void DisableClearsPortalLane()
+    {
+        var (coordinator, magic, replies) = NewCoordinator(new RequestQueue(5), catalog: new PortalCatalog());
+        coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary));
+
+        (_, IReadOnlyList<PortalRequest> drainedPortals) = coordinator.RequestStopForDisable();
+
+        // So the plugin can tell this requester the same "taking a break" reply a waiting buff
+        // requester gets — a portal ask should never be dropped silently.
+        Assert.Equal([PortalRequesterId], drainedPortals.Select(r => r.RequesterObjectId));
+        Assert.False(coordinator.HasPendingPortal(PortalRequesterId));
+        Assert.Null(coordinator.PortalPosition(PortalRequesterId));
+
+        Pump(coordinator, [], enabled: true, replies);
+        Assert.Empty(magic.SentSpellIds);
+    }
+
+    [Fact]
+    public void PortalBouncesManaBeforeSummoning()
+    {
+        const uint ManaSpellFamily = 900;
+        const uint ManaSpellId = 901;
+        const uint RevitalizeFamily = 901;
+        const uint RevitalizeSpellId = 902;
+
+        var character = new FakeCharacter { CurrentMana = 20 }; // below the portal spell's 150 cost
+        var magic = new FakeMagic();
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic };
+        var enchantments = new FakeEnchantments();
+
+        var spellSets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultSpellSets.Self] = Array.Empty<string>(),
+            [DefaultSpellSets.Buff] = Array.Empty<string>(),
+            [DefaultSpellSets.ManaUpkeep] = DefaultSpellSets.Table[DefaultSpellSets.ManaUpkeep],
+        };
+        var coordinator = new BuffCoordinator(
+            new RequestQueue(5), magic, enchantments, items, equipment, combat, spellSets,
+            character: character, catalog: new PortalCatalog());
+
+        List<PluginSpellInfo> catalog =
+        [
+            new(
+                SpellId: ManaSpellId, Name: "Stamina to Mana Self I", Family: ManaSpellFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 0f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+            new(
+                SpellId: RevitalizeSpellId, Name: "Revitalize Self I", Family: RevitalizeFamily, Tier: 1,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 0f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        ];
+
+        List<string> replies = [];
+        coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary));
+
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog); // too little mana - bounces first
+        Assert.Equal([ManaSpellId], magic.SentSpellIds);
+
+        character.CurrentMana = 170; // clears the high mark in one cycle
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: ManaSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump(coordinator, [SelfConfirm("Stamina to Mana Self I")], enabled: true, replies, catalog: catalog);
+        Assert.Equal([ManaSpellId, RevitalizeSpellId], magic.SentSpellIds);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: RevitalizeSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump(coordinator, [SelfConfirm("Revitalize Self I")], enabled: true, replies, catalog: catalog);
+        Assert.Equal([ManaSpellId, RevitalizeSpellId, PortalSpellId], magic.SentSpellIds); // now summons
+    }
+
+    [Fact]
+    public void DisablingMidSummonTurnsBackOnceAndReleasesTheRequester()
+    {
+        var facing = new FakeFacing { CurrentHeading = 45f };
+        var (coordinator, magic, replies) = NewCoordinator(new RequestQueue(5), catalog: new PortalCatalog());
+        coordinator.TryEnqueuePortal(new PortalRequest(PortalRequesterId, PortalRequesterName, PortalTieSlot.Primary));
+
+        Pump(coordinator, [], enabled: true, replies, facing: facing, tieFor: static _ => new PortalTie("x", PortalDirection.Right));
+        Assert.Equal([PortalSpellId], magic.SentSpellIds);
+        Assert.True(coordinator.HasPendingPortal(PortalRequesterId));
+
+        coordinator.RequestStopForDisable(); // /buffbot off lands mid-summon
+        Assert.True(coordinator.NeedsPump); // the plugin must keep ticking this to its own end
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: PortalSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump(coordinator, [], enabled: true, replies, facing: facing, deltaSeconds: 0.1); // completion observed
+        Pump(coordinator, [], enabled: true, replies, facing: facing, deltaSeconds: 1.5); // grace clears - lands
+
+        Assert.False(coordinator.HasPendingPortal(PortalRequesterId));
+        Assert.False(coordinator.NeedsPump);
+        Assert.Equal([135f, 45f], facing.FacedDegrees); // recorded (45) + Right's 90 offset, then back
+    }
 
     // -- WouldFindNothingLearned ------------------------------------------------------------------
 
@@ -1510,7 +2389,8 @@ public sealed class BuffCoordinatorTests
         RequestQueue queue,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? spellSets = null,
         int? targetTier = null,
-        BotStats? stats = null)
+        BotStats? stats = null,
+        ISpellCatalog? catalog = null)
     {
         var magic = new FakeMagic();
         var items = new FakeItems();
@@ -1527,7 +2407,7 @@ public sealed class BuffCoordinatorTests
 
         var coordinator = new BuffCoordinator(
             queue, magic, enchantments, items, equipment, combat, spellSets, targetTier: targetTier,
-            stats: stats);
+            stats: stats, catalog: catalog);
         return (coordinator, magic, []);
     }
 
@@ -1539,7 +2419,10 @@ public sealed class BuffCoordinatorTests
         double deltaSeconds = 0,
         IReadOnlyList<PluginSpellInfo>? catalog = null,
         IReadOnlyList<PluginWorldObject>? capturedObjects = null,
-        bool tradeOpen = false) =>
+        bool tradeOpen = false,
+        IPortalFacing? facing = null,
+        Func<PortalTieSlot, PortalTie>? tieFor = null,
+        Action<string>? sayLocal = null) =>
         coordinator.Pump(
             deltaSeconds,
             catalog ?? Catalog,
@@ -1549,7 +2432,10 @@ public sealed class BuffCoordinatorTests
             distanceToRequester: static _ => 10d,
             sendReply: (_, _, text) => replies.Add(text),
             capturedObjects: capturedObjects,
-            tradeOpen: tradeOpen);
+            tradeOpen: tradeOpen,
+            facing: facing,
+            tieFor: tieFor,
+            sayLocal: sayLocal);
 
     private static readonly PluginSpellInfo[] Catalog =
     [

@@ -10,6 +10,11 @@ internal static class DefaultVocabulary
         ("status", Intent.Status),
         ("contribute", Intent.Contribute),
 
+        ("where", Intent.Where),
+        ("whereto", Intent.Where),
+        ("primary", Intent.PortalPrimary),
+        ("secondary", Intent.PortalSecondary),
+
         ("buffs", Intent.Buffs),
         ("buff me", Intent.Buffs),
         ("buff", Intent.Buffs),

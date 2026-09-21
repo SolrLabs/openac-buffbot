@@ -2,6 +2,7 @@ using SolrLabs.BuffBot.Casting;
 using SolrLabs.BuffBot.Components;
 using SolrLabs.BuffBot.Donations;
 using SolrLabs.BuffBot.Guard;
+using SolrLabs.BuffBot.Portals;
 
 namespace SolrLabs.BuffBot.Vocabulary;
 
@@ -68,7 +69,7 @@ internal static class DefaultReplies
         $"Unwedged: cleared {clearedFromQueue} from the queue, unmuted {unmuted.Total} "
             + $"({unmuted.Automatic} automatic, {unmuted.Manual} manual).";
 
-    internal static string Help(VocabularyTable vocabulary)
+    internal static string Help(VocabularyTable vocabulary, bool portalsOffered = false)
     {
         var segments = new List<string> { "Happy to help!" };
 
@@ -88,6 +89,13 @@ internal static class DefaultReplies
         if (contributePhrase is not null)
             segments.Add($"Send {contributePhrase} to hear what I'm low on.");
 
+        if (portalsOffered)
+        {
+            List<string> portalPhrases = CanonicalPhrasesFor(vocabulary, IsPortalCommand);
+            if (portalPhrases.Count > 0)
+                segments.Add($"Portals: {string.Join(", ", portalPhrases)}.");
+        }
+
         return string.Join(" ", segments);
     }
 
@@ -102,6 +110,12 @@ internal static class DefaultReplies
     private static bool IsQueueCommand(Intent intent) => intent switch
     {
         Intent.Position or Intent.Cancel => true,
+        _ => false,
+    };
+
+    private static bool IsPortalCommand(Intent intent) => intent switch
+    {
+        Intent.Where or Intent.PortalPrimary or Intent.PortalSecondary => true,
         _ => false,
     };
 
@@ -127,8 +141,38 @@ internal static class DefaultReplies
         return null;
     }
 
+    // -- Portals --------------------------------------------------------------------------------
+
+    internal static string Where(string? primary, string? secondary)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(primary)) parts.Add($"Primary: {primary.Trim().TrimEnd('.')}.");
+        if (!string.IsNullOrWhiteSpace(secondary)) parts.Add($"Secondary: {secondary.Trim().TrimEnd('.')}.");
+        return parts.Count == 0 ? PortalNotOffered : string.Join(" ", parts);
+    }
+
+    internal static string SummoningPortal(string description) =>
+        $"Summoning a portal to {description.Trim().TrimEnd('.')}.";
+
+    internal static string NotTied(PortalTieSlot slot) =>
+        $"I'm not tied to a {slot.ToString().ToLowerInvariant()} portal right now.";
+
+    internal const string CouldNotSummon = "I couldn't summon that portal.";
+
+    internal const string CantSummonYet = "I can't summon portals yet.";
+
+    internal const string PortalNotOffered = "I'm not offering portals right now.";
+
+    internal const string PortalTimedOut = "Something went wrong summoning the portal.";
+
     internal static string Status(string version, int tellsAnswered) =>
         $"Still here: {tellsAnswered} tell(s) answered so far, running BuffBot {version}.";
+
+    // Posted as a system message, never a tell — by ConsoleLinkAnnouncer and /buffbot console.
+    internal static string WebConsoleAnnouncement(string link) => $"BuffBot web console: {link}";
+
+    // Posted as a system message by /buffbot console when the mesh has no link yet.
+    internal const string WebConsoleNotUpYet = "The web console isn't up yet.";
 
     // Posted as a system message, never a tell.
     internal static string Status(string version, int tellsAnswered, bool enabled) =>
@@ -472,8 +516,9 @@ internal static class DefaultReplies
         NotInLine,
         RemovedFromLine,
         "Sure, I'll buff * instead of *.",
+        // Trailing * covers the "Portals: *." sentence Help appends when a tie is offered.
         "Happy to help! Ask me for a buff: *. While you're waiting: *. Send * any time to see how busy I am. "
-            + "Send * to hear what I'm low on.",
+            + "Send * to hear what I'm low on.*",
         "Still here: *.",
         "Queued, * ahead of you.",
         "In line: *",
@@ -501,5 +546,13 @@ internal static class DefaultReplies
         DonationStallClosing,
         DonationNoSpace,
         "Please open a trade with me instead; I'll take *.",
+        "Primary: *.",
+        "Secondary: *.",
+        PortalNotOffered,
+        "Summoning a portal to *.",
+        "I'm not tied to a * portal right now.",
+        CouldNotSummon,
+        CantSummonYet,
+        PortalTimedOut,
     ];
 }

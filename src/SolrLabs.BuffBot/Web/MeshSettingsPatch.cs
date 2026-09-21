@@ -13,4 +13,6 @@ internal sealed record MeshSettingsPatch(
     int? ComponentLowStock = null,
     double? ManaBounceLowWaterFraction = null,
     double? ManaBounceHighWaterFraction = null,
-    bool? SplitPeas = null);
+    bool? SplitPeas = null,
+    MeshPortalTie? PrimaryPortal = null,
+    MeshPortalTie? SecondaryPortal = null);

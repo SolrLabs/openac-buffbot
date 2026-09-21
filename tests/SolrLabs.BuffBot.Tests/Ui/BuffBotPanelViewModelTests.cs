@@ -61,6 +61,15 @@ public sealed class BuffBotPanelViewModelTests
     }
 
     [Fact]
+    public void ProjectsASummoningPortalActivity()
+    {
+        BuffBotPanelViewModel panel = NewPanel();
+        panel.UpdateStatus(StatusWith(currentMana: 0, maxMana: 0) with { Activity = BotActivity.SummoningPortal });
+
+        Assert.Equal("Summoning a portal", panel.ActivityLabel);
+    }
+
+    [Fact]
     public void EnableToggleLabelIsEnableBeforeAnyStatusArrives()
     {
         BuffBotPanelViewModel panel = NewPanel();

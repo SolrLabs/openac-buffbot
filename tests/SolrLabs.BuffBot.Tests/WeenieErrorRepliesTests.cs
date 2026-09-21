@@ -16,4 +16,11 @@ public sealed class WeenieErrorRepliesTests
     [Fact]
     public void UnmappedCodeFallsBackToTheRawNumber() =>
         Assert.Equal("weenie error 1234", WeenieErrorReplies.Describe(1234));
+
+    [Theory]
+    [InlineData(0x04A5u)]
+    [InlineData(0x04AEu)]
+    [InlineData(0x04A4u)]
+    public void PortalErrorsHavePlainText(uint code) =>
+        Assert.DoesNotContain("weenie error", WeenieErrorReplies.Describe(code));
 }

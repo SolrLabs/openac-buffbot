@@ -1,3 +1,4 @@
+using SolrLabs.BuffBot.Portals;
 using SolrLabs.BuffBot.Settings;
 
 namespace SolrLabs.BuffBot.Tests.Settings;
@@ -174,5 +175,33 @@ public sealed class BuffBotSettingsStoreTests
 
         Assert.Equal(0.55, loaded.ManaBounceLowWaterFraction);
         Assert.Equal(0.65, loaded.ManaBounceHighWaterFraction);
+    }
+
+    [Fact]
+    public void BothPortalTiesRoundTrip()
+    {
+        var storage = new FakeStorage();
+        var saved = BuffBotSettings.Default with
+        {
+            PrimaryPortal = new PortalTie("Temple of Enlightenment", PortalDirection.Right),
+            SecondaryPortal = new PortalTie("Holtburg", PortalDirection.Behind),
+        };
+        new BuffBotSettingsStore(storage).Save(1234, saved);
+
+        BuffBotSettings loaded = new BuffBotSettingsStore(storage).Load(1234);
+
+        Assert.Equal(saved.PrimaryPortal, loaded.PrimaryPortal);
+        Assert.Equal(saved.SecondaryPortal, loaded.SecondaryPortal);
+    }
+
+    [Fact]
+    public void ACharacterNeverSeenBeforeLoadsEmptyPortalTies()
+    {
+        var store = new BuffBotSettingsStore(new FakeStorage());
+
+        BuffBotSettings loaded = store.Load(1234);
+
+        Assert.Equal(PortalTie.Empty, loaded.PrimaryPortal);
+        Assert.Equal(PortalTie.Empty, loaded.SecondaryPortal);
     }
 }

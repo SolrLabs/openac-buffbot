@@ -28,7 +28,9 @@ public sealed class MeshJsonTests
         Counters: new MeshCounters(5, 4, 1, 0, 0),
         Stats: MeshStats.Empty,
         Recent: Array.Empty<MeshRecentEvent>(),
-        Settings: new MeshSettings(true, 67.5, 12, false, null, true, 6, 25, 0.20, 0.80),
+        Settings: new MeshSettings(
+            true, 67.5, 12, false, null, true, 6, 25, 0.20, 0.80, true,
+            new MeshPortalTie("Temple of Enlightenment", "right"), new MeshPortalTie("Holtburg", "behind")),
         Components: new MeshComponents(true, [new MeshComponentItem(5000, "Tiger Eye Agate", 24, 2)]),
         CurrentHealth: 800u,
         MaxHealth: 1000u,
@@ -86,6 +88,12 @@ public sealed class MeshJsonTests
         Assert.Equal(25, settings["componentLowStock"]!.GetValue<int>());
         Assert.Equal(0.20, settings["manaBounceLowWaterFraction"]!.GetValue<double>());
         Assert.Equal(0.80, settings["manaBounceHighWaterFraction"]!.GetValue<double>());
+        JsonObject primaryPortal = Assert.IsType<JsonObject>(settings["primaryPortal"]);
+        Assert.Equal("Temple of Enlightenment", primaryPortal["description"]!.GetValue<string>());
+        Assert.Equal("right", primaryPortal["direction"]!.GetValue<string>());
+        JsonObject secondaryPortal = Assert.IsType<JsonObject>(settings["secondaryPortal"]);
+        Assert.Equal("Holtburg", secondaryPortal["description"]!.GetValue<string>());
+        Assert.Equal("behind", secondaryPortal["direction"]!.GetValue<string>());
 
         JsonObject components = Assert.IsType<JsonObject>(json["components"]);
         Assert.True(components["available"]!.GetValue<bool>());
@@ -147,6 +155,7 @@ public sealed class MeshJsonTests
         Assert.Equal("serving", MapActivity(BotActivity.Serving));
         Assert.Equal("selfBuffing", MapActivity(BotActivity.SelfBuffing));
         Assert.Equal("toppingUp", MapActivity(BotActivity.ToppingUp));
+        Assert.Equal("summoningPortal", MapActivity(BotActivity.SummoningPortal));
     }
 
     private static string MapActivity(BotActivity activity)
@@ -327,6 +336,47 @@ public sealed class MeshJsonTests
         Assert.False(patch.HasTargetTier);
         Assert.Null(patch.ManaBounceLowWaterFraction);
         Assert.Null(patch.ManaBounceHighWaterFraction);
+        Assert.Null(patch.PrimaryPortal);
+        Assert.Null(patch.SecondaryPortal);
+    }
+
+    [Fact]
+    public void ParsesASettingsCommandWithAPortalTie()
+    {
+        MeshCommand? command = MeshJson.TryParseCommand(
+            "{\"kind\":\"settings\",\"settings\":{\"primaryPortal\":{\"description\":\"Temple of Enlightenment\",\"direction\":\"right\"}}}");
+
+        Assert.NotNull(command);
+        MeshSettingsPatch patch = command!.Settings!;
+        Assert.Equal("Temple of Enlightenment", patch.PrimaryPortal!.Description);
+        Assert.Equal("right", patch.PrimaryPortal.Direction);
+        Assert.Null(patch.SecondaryPortal);
+    }
+
+    [Fact]
+    public void RejectsASettingsCommandWherePrimaryPortalIsNotAnObject() =>
+        Assert.Null(MeshJson.TryParseCommand("{\"kind\":\"settings\",\"settings\":{\"primaryPortal\":\"nope\"}}"));
+
+    [Theory]
+    [InlineData("\"sideways\"")]
+    [InlineData("null")]
+    public void ParsesAnUnknownOrMissingPortalDirectionAsFront(string directionJson)
+    {
+        MeshCommand? command = MeshJson.TryParseCommand(
+            $"{{\"kind\":\"settings\",\"settings\":{{\"primaryPortal\":{{\"description\":\"Temple\",\"direction\":{directionJson}}}}}}}");
+
+        Assert.NotNull(command);
+        Assert.Equal("front", command!.Settings!.PrimaryPortal!.Direction);
+    }
+
+    [Fact]
+    public void ParsesAPortalTieWithNoDirectionKeyAsFront()
+    {
+        MeshCommand? command = MeshJson.TryParseCommand(
+            "{\"kind\":\"settings\",\"settings\":{\"primaryPortal\":{\"description\":\"Temple\"}}}");
+
+        Assert.NotNull(command);
+        Assert.Equal("front", command!.Settings!.PrimaryPortal!.Direction);
     }
 
     [Fact]

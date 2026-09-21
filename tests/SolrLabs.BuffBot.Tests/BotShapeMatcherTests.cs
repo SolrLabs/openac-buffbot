@@ -62,4 +62,13 @@ public sealed class BotShapeMatcherTests
     [Fact]
     public void MatchingIsWhitespaceTolerantAtTheEdges() =>
         Assert.True(BotShapeMatcher.IsBotShaped("  On it.  "));
+
+    /// <summary>The trailing "Portals: ..." sentence Help appends once a tie is offered must not
+    /// defeat the loop guard.</summary>
+    [Fact]
+    public void HelpReplyIsRecognisedWithAndWithoutThePortalsSentence()
+    {
+        Assert.True(BotShapeMatcher.IsBotShaped(DefaultReplies.Help(DefaultVocabulary.Table, portalsOffered: false)));
+        Assert.True(BotShapeMatcher.IsBotShaped(DefaultReplies.Help(DefaultVocabulary.Table, portalsOffered: true)));
+    }
 }

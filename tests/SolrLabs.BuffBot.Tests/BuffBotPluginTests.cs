@@ -181,4 +181,38 @@ public sealed class BuffBotPluginTests
     {
         Assert.True(BuffBotPlugin.DistanceTraceIsWorthLogging(30d, inRange: false, lastTraced: (30d, true)));
     }
+
+    /// <summary><c>/buffbot console</c> answers with the link on a UI host too, unlike <see
+    /// cref="ConsoleLinkAnnouncer"/>'s auto-post.</summary>
+    [Fact]
+    public void TheConsoleCommandRepliesWithTheLinkWhenThereIsOne()
+    {
+        string reply = BuffBotPlugin.ConsoleCommandReply("http://127.0.0.1:8347/?token=abc");
+
+        Assert.Equal("BuffBot web console: http://127.0.0.1:8347/?token=abc", reply);
+    }
+
+    [Fact]
+    public void TheConsoleCommandRepliesNotUpYetWhenThereIsNoLink()
+    {
+        Assert.Equal("The web console isn't up yet.", BuffBotPlugin.ConsoleCommandReply(null));
+        Assert.Equal("The web console isn't up yet.", BuffBotPlugin.ConsoleCommandReply(string.Empty));
+    }
+
+    [Fact]
+    public void AnEmptyCatalogNeverWarnsAboutAStrandedPortalTie()
+    {
+        // The spellbook hasn't arrived yet; a real Summon Portal spell must not be reported missing.
+        Assert.False(BuffBotPlugin.ShouldWarnAboutStrandedPortalTie(
+            knownSpellCount: 0, primaryStranded: true, secondaryStranded: true));
+    }
+
+    [Fact]
+    public void APopulatedCatalogWarnsOnceAStrandedTieIsFound()
+    {
+        Assert.True(BuffBotPlugin.ShouldWarnAboutStrandedPortalTie(
+            knownSpellCount: 40, primaryStranded: true, secondaryStranded: false));
+        Assert.False(BuffBotPlugin.ShouldWarnAboutStrandedPortalTie(
+            knownSpellCount: 40, primaryStranded: false, secondaryStranded: false));
+    }
 }

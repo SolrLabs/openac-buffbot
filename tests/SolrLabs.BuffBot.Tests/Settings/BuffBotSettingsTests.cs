@@ -1,3 +1,4 @@
+using SolrLabs.BuffBot.Portals;
 using SolrLabs.BuffBot.Settings;
 
 namespace SolrLabs.BuffBot.Tests.Settings;
@@ -19,6 +20,8 @@ public sealed class BuffBotSettingsTests
         Assert.Equal(25, settings.ComponentLowStock);
         Assert.Equal(0.20, settings.ManaBounceLowWaterFraction);
         Assert.Equal(0.80, settings.ManaBounceHighWaterFraction);
+        Assert.Equal(PortalTie.Empty, settings.PrimaryPortal);
+        Assert.Equal(PortalTie.Empty, settings.SecondaryPortal);
     }
 
     [Theory]
@@ -84,6 +87,8 @@ public sealed class BuffBotSettingsTests
             TargetTier: int.MaxValue,
             TierFallback: false,
             FizzlesBeforeSkip: int.MinValue,
+            PrimaryPortal: PortalTie.Empty,
+            SecondaryPortal: PortalTie.Empty,
             ComponentLowStock: int.MinValue,
             ManaBounceLowWaterFraction: double.MaxValue,
             ManaBounceHighWaterFraction: double.MinValue);
@@ -251,5 +256,27 @@ public sealed class BuffBotSettingsTests
             componentLowStock: null, manaBounceLowWaterFraction: null, manaBounceHighWaterFraction: null,
             splitPeas: false);
         Assert.False(changed.SplitPeas);
+    }
+
+    [Fact]
+    public void WithPatchLeavesEachTieAloneWhenItsPatchIsNullAndReplacesItWhenPresent()
+    {
+        var tied = BuffBotSettings.Default with
+        {
+            PrimaryPortal = new PortalTie("Temple of Enlightenment", PortalDirection.Right),
+            SecondaryPortal = new PortalTie("Holtburg", PortalDirection.Left),
+        };
+
+        BuffBotSettings left = tied.WithPatch(
+            null, null, null, null, hasTargetTier: false, null, null, null,
+            primaryPortal: null, secondaryPortal: null);
+        Assert.Equal(tied.PrimaryPortal, left.PrimaryPortal);
+        Assert.Equal(tied.SecondaryPortal, left.SecondaryPortal);
+
+        BuffBotSettings changed = tied.WithPatch(
+            null, null, null, null, hasTargetTier: false, null, null, null,
+            primaryPortal: new PortalTie("Shoushi", PortalDirection.Behind), secondaryPortal: null);
+        Assert.Equal(new PortalTie("Shoushi", PortalDirection.Behind), changed.PrimaryPortal);
+        Assert.Equal(tied.SecondaryPortal, changed.SecondaryPortal);
     }
 }

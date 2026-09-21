@@ -3,6 +3,7 @@ using SolrLabs.BuffBot.Components;
 using SolrLabs.BuffBot.Donations;
 using SolrLabs.BuffBot.Guard;
 using SolrLabs.BuffBot.Policy;
+using SolrLabs.BuffBot.Portals;
 using SolrLabs.BuffBot.Requests;
 using SolrLabs.BuffBot.Spells;
 using SolrLabs.BuffBot.Tests.Timing;
@@ -535,6 +536,225 @@ public sealed class ResponderTests
         string? third = responder.Reply(Tell("Archer", "contribute"), tellsAnswered: 3);
 
         Assert.Equal($"/tell Archer, {DefaultReplies.Pausing}", third);
+    }
+
+    // -- Portals --------------------------------------------------------------------------------
+
+    [Fact]
+    public void WhereWithNoTieOfferedSaysNotOffered()
+    {
+        var responder = new Responder(DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, NewGuard());
+
+        string? reply = responder.Reply(Tell("Archer", "where"), tellsAnswered: 1);
+
+        Assert.Equal($"/tell Archer, {DefaultReplies.PortalNotOffered}", reply);
+    }
+
+    [Fact]
+    public void PortalPrimaryWithTheirTieBlankSaysNotOffered()
+    {
+        var responder = new Responder(DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, NewGuard());
+
+        string? reply = responder.Reply(Tell("Wizard", "primary"), tellsAnswered: 1);
+
+        Assert.Equal($"/tell Wizard, {DefaultReplies.PortalNotOffered}", reply);
+    }
+
+    /// <summary>Known up front, before ever enqueuing, exactly like <see
+    /// cref="ARequestKnownToHaveNothingLearnedIsRefusedWithoutAnAckFirst"/> does for a buff.</summary>
+    [Fact]
+    public void PortalPrimaryWithATieOfferedButNoSummonSpellKnownSaysCantSummonYet()
+    {
+        bool enqueueCalled = false;
+        var responder = new Responder(
+            DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, NewGuard(),
+            portalTieFor: OfferedTie,
+            knowsPortalSpell: _ => false,
+            enqueuePortal: _ =>
+            {
+                enqueueCalled = true;
+                return EnqueueResult.Enqueued;
+            });
+
+        string? reply = responder.Reply(Tell("Wizard", "primary"), tellsAnswered: 1);
+
+        Assert.Equal($"/tell Wizard, {DefaultReplies.CantSummonYet}", reply);
+        Assert.False(enqueueCalled);
+    }
+
+    /// <summary>The run itself sends <see cref="DefaultReplies.SummoningPortal"/>, once the
+    /// summon actually starts; the responder's own ack never carries it.</summary>
+    [Fact]
+    public void AcceptedPortalPrimaryAcksWithoutTheResponderEverSendingSummoningPortal()
+    {
+        var lane = new FakePortalLane();
+        Responder responder = NewPortalResponder(lane);
+
+        string? reply = responder.Reply(Tell("Wizard", "primary", senderObjectId: 5), tellsAnswered: 1);
+
+        Assert.Equal($"/tell Wizard, {DefaultReplies.Starting}", reply);
+        Assert.True(lane.HasPending(5));
+    }
+
+    /// <summary>A different requester arriving behind one already pending is acked with their
+    /// place in the lane, not <see cref="DefaultReplies.Starting"/>.</summary>
+    [Fact]
+    public void SecondRequesterPortalPrimaryWhileAnotherIsPendingIsQueued()
+    {
+        var lane = new FakePortalLane();
+        Responder responder = NewPortalResponder(lane);
+        responder.Reply(Tell("First", "primary", senderObjectId: 1), tellsAnswered: 1);
+
+        string? reply = responder.Reply(Tell("Second", "primary", senderObjectId: 2), tellsAnswered: 2);
+
+        Assert.Equal($"/tell Second, {DefaultReplies.Queued(1)}", reply);
+    }
+
+    [Fact]
+    public void SecondPortalPrimaryWhilePendingIsAlreadyQueued()
+    {
+        var lane = new FakePortalLane();
+        Responder responder = NewPortalResponder(lane);
+        responder.Reply(Tell("Wizard", "primary", senderObjectId: 5), tellsAnswered: 1);
+
+        string? reply = responder.Reply(Tell("Wizard", "primary", senderObjectId: 5), tellsAnswered: 2);
+
+        Assert.Equal($"/tell Wizard, {DefaultReplies.AlreadyQueued}", reply);
+    }
+
+    /// <summary>A buff standing takes precedence, but a stranger to the buff queue with a
+    /// pending portal still gets an answer, not <see cref="DefaultReplies.NotInLine"/>.</summary>
+    [Fact]
+    public void PositionFindsAPendingPortal()
+    {
+        var lane = new FakePortalLane();
+        Responder responder = NewPortalResponder(lane);
+        responder.Reply(Tell("First", "primary", senderObjectId: 1), tellsAnswered: 1);
+        responder.Reply(Tell("Second", "primary", senderObjectId: 2), tellsAnswered: 2);
+
+        string? reply = responder.Reply(Tell("Second", "position", senderObjectId: 2), tellsAnswered: 3);
+
+        Assert.Equal($"/tell Second, {DefaultReplies.Position(1)}", reply);
+    }
+
+    [Fact]
+    public void CancelRemovesAPendingPortal()
+    {
+        var lane = new FakePortalLane();
+        Responder responder = NewPortalResponder(lane);
+        responder.Reply(Tell("Wizard", "primary", senderObjectId: 5), tellsAnswered: 1);
+
+        string? reply = responder.Reply(Tell("Wizard", "cancel", senderObjectId: 5), tellsAnswered: 2);
+
+        Assert.Equal($"/tell Wizard, {DefaultReplies.RemovedFromLine}", reply);
+        Assert.False(lane.HasPending(5));
+    }
+
+    [Fact]
+    public void HelpListsPortalsOnlyWhenATieIsOffered()
+    {
+        var responder = new Responder(
+            DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, NewGuard(), portalTieFor: OfferedTie);
+
+        string? reply = responder.Reply(Tell("Archer", "help"), tellsAnswered: 1);
+
+        Assert.Equal(
+            $"/tell Archer, {DefaultReplies.Help(DefaultVocabulary.Table, portalsOffered: true)}", reply);
+    }
+
+    [Fact]
+    public void HelpOmitsPortalsWhenNoTieIsOffered()
+    {
+        var responder = new Responder(DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, NewGuard());
+
+        string? reply = responder.Reply(Tell("Archer", "help"), tellsAnswered: 1);
+
+        Assert.Equal($"/tell Archer, {DefaultReplies.Help(DefaultVocabulary.Table)}", reply);
+    }
+
+    [Fact]
+    public void PausedIntakeAnswersAPortalRequestWithoutEnqueuingIt()
+    {
+        var lane = new FakePortalLane();
+        var responder = new Responder(
+            DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, NewGuard(),
+            intakePaused: () => true,
+            portalTieFor: OfferedTie,
+            knowsPortalSpell: _ => true,
+            enqueuePortal: lane.TryEnqueue,
+            hasPendingPortal: lane.HasPending);
+
+        string? reply = responder.Reply(Tell("Wizard", "primary", senderObjectId: 5), tellsAnswered: 1);
+
+        Assert.Equal($"/tell Wizard, {DefaultReplies.IntakePaused}", reply);
+        Assert.False(lane.HasPending(5));
+    }
+
+    private static PortalTie OfferedTie(PortalTieSlot slot) =>
+        new("the Holtburg lifestone", PortalDirection.Front);
+
+    private static Responder NewPortalResponder(FakePortalLane lane) => new(
+        DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, NewGuard(),
+        portalTieFor: OfferedTie,
+        knowsPortalSpell: _ => true,
+        enqueuePortal: lane.TryEnqueue,
+        hasPendingPortal: lane.HasPending,
+        portalPosition: lane.Position,
+        cancelPortal: lane.TryCancel);
+
+    /// <summary>Replays <c>BuffCoordinator</c>'s own portal lane semantics closely enough to
+    /// exercise the responder's wiring, without depending on the coordinator itself.</summary>
+    private sealed class FakePortalLane
+    {
+        private readonly Queue<PortalRequest> _lane = new();
+        private readonly HashSet<uint> _tracked = new();
+
+        internal EnqueueResult TryEnqueue(PortalRequest request)
+        {
+            if (_tracked.Contains(request.RequesterObjectId))
+                return EnqueueResult.AlreadyQueued;
+
+            _lane.Enqueue(request);
+            _tracked.Add(request.RequesterObjectId);
+            return EnqueueResult.Enqueued;
+        }
+
+        internal bool HasPending(uint requesterObjectId) => _tracked.Contains(requesterObjectId);
+
+        internal int? Position(uint requesterObjectId)
+        {
+            int ahead = 0;
+            foreach (PortalRequest candidate in _lane)
+            {
+                if (candidate.RequesterObjectId == requesterObjectId)
+                    return ahead;
+                ahead++;
+            }
+            return null;
+        }
+
+        internal bool TryCancel(uint requesterObjectId)
+        {
+            if (!_tracked.Contains(requesterObjectId))
+                return false;
+
+            int originalCount = _lane.Count;
+            bool removed = false;
+            for (int i = 0; i < originalCount; i++)
+            {
+                PortalRequest candidate = _lane.Dequeue();
+                if (!removed && candidate.RequesterObjectId == requesterObjectId)
+                {
+                    removed = true;
+                    continue;
+                }
+                _lane.Enqueue(candidate);
+            }
+
+            if (removed)
+                _tracked.Remove(requesterObjectId);
+            return removed;
+        }
     }
 
     private static AccessPolicy Free() => new(AccessMode.Free);

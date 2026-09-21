@@ -12,6 +12,9 @@ internal enum BotActivity
 
     // Bounces mana toward the high-water mark between two requesters' chains.
     ToppingUp,
+
+    // A held chain (if any) still counts as this, not Idle — see the portal lane.
+    SummoningPortal,
 }
 
 internal readonly record struct SessionCounters(

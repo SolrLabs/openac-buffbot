@@ -5,6 +5,7 @@ using SolrLabs.BuffBot.Components;
 using SolrLabs.BuffBot.Donations;
 using SolrLabs.BuffBot.Guard;
 using SolrLabs.BuffBot.Policy;
+using SolrLabs.BuffBot.Portals;
 using SolrLabs.BuffBot.Requests;
 using SolrLabs.BuffBot.Settings;
 using SolrLabs.BuffBot.Spells;
@@ -41,6 +42,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
     private IPluginHost? _host;
     private CharacterEnablement? _enablement;
     private BuffCoordinator? _coordinator;
+    private IPortalFacing? _portalFacing;
     private BuffBotPanelViewModel? _panel;
     private Action<double>? _tick;
     private IDisposable? _commandRegistration;
@@ -50,6 +52,10 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
     /// <summary>Runs whenever bound, independent of the per-character enable switch; never throws.</summary>
     private MeshSupervisor? _mesh;
     private byte[]? _consolePageBytes;
+
+    /// <summary>Posts the mesh console link to the headless console the first time it appears or
+    /// changes; lives for the plugin's lifetime so a relog doesn't repeat an unchanged link.</summary>
+    private readonly ConsoleLinkAnnouncer _consoleAnnouncer = new();
 
     /// <summary>Stays not-ready until inventory is proven stable, so nothing acts on an empty
     /// capture.</summary>
@@ -83,6 +89,10 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
     private uint? _cachedCharacterObjectId;
     private bool _enabledForCachedCharacter;
     private bool _announcedEnablementState;
+
+    /// <summary>Warns the operator console once per load about a portal tie offered with no
+    /// summon spell known, not once per tick.</summary>
+    private bool _announcedPortalTieWarning;
 
     private BuffBotSettingsStore? _settingsStore;
 
@@ -120,7 +130,8 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         _responder = new Responder(
             DefaultVocabulary.Table, new AccessPolicy(AccessMode.Free), _queue, Version, _guard,
             AreSelfCastsDue, WillTopUpBeforeNextRequest, _stats, () => _currentSettings.IntakePaused,
-            WouldFindNothingLearned, StopActiveRun, () => _lastContribution);
+            WouldFindNothingLearned, StopActiveRun, () => _lastContribution,
+            PortalTieFor, KnowsPortalSpell, EnqueuePortal, HasPendingPortal, PortalPositionFor, CancelPortal);
         _operator = new OperatorConsole(_queue, _guard);
     }
 
@@ -177,6 +188,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             stats: _stats,
             peaSplitCoordinator: _peaSplitter,
             catalog: _host.Automation.Spells);
+        _portalFacing = new HostPortalFacing(_host.Automation.Navigation);
 
         _tick = OnTick;
         _host.Events.Tick += _tick;
@@ -213,6 +225,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             _host.Events.Tick -= _tick;
         _tick = null;
         _coordinator = null;
+        _portalFacing = null;
 
         _commandRegistration?.Dispose();
         _commandRegistration = null;
@@ -240,6 +253,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         try
         {
             AnnounceEnablementIfPossible(host);
+            AnnouncePortalTieWarningIfPossible(host);
 
             // Commands are drained ahead of the enable check so a console enable/disable lands
             // this tick.
@@ -248,16 +262,19 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             SyncSettingsIntoRuntime();
             SampleComponents(host, deltaSeconds);
 
-            _panel?.UpdateConsole(
-                _mesh?.DescribeConsole() ?? new MeshConsoleLink(MeshConsoleState.Unavailable, null));
+            MeshConsoleLink console =
+                _mesh?.DescribeConsole() ?? new MeshConsoleLink(MeshConsoleState.Unavailable, null);
+            _panel?.UpdateConsole(console);
+            if (_consoleAnnouncer.Observe(console.Link, host.HasUi) is { } announcement)
+                host.Automation.Chat.PostSystemMessage(announcement);
 
             // Pumping _coordinator here would risk casting while meant to be off, so the panel
             // and mesh get a minimal snapshot instead.
             if (!IsEnabledForCurrentCharacter(host))
             {
-                // Disabling already asked the caster to stop after its current cast; still ticking
-                // it here lets that cast's confirmation land in the ledger before the run closes.
-                if (_coordinator is { HasActiveRequester: true })
+                // Disabling already asked the caster to stop; still ticking here lets that cast's
+                // confirmation land, and lets a portal run in flight turn back and release its requester.
+                if (_coordinator is { NeedsPump: true })
                 {
                     IReadOnlyList<PluginChatMessage> draining =
                         host.Automation.Chat.CaptureMessages(_tells.LastSequence);
@@ -345,7 +362,10 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             capturedObjects: capturedObjects,
             components: _lastComponents,
             usesScarabOnlyFormula: _lastUsesScarabOnlyFormula,
-            tradeOpen: tradeOpen)
+            tradeOpen: tradeOpen,
+            facing: _portalFacing,
+            tieFor: PortalTieFor,
+            sayLocal: text => host.Automation.Chat.Submit("/say " + text))
             with
             {
                 Settings = _currentSettings,
@@ -618,11 +638,19 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
     /// of the next <see cref="SyncSettingsIntoRuntime"/>.</summary>
     private void ApplySettingsPatch(IPluginHost host, MeshSettingsPatch patch, string source)
     {
+        PortalTie? primaryPortal = patch.PrimaryPortal is { } primary
+            ? new PortalTie(primary.Description, PortalDirectionText.Parse(primary.Direction))
+            : null;
+        PortalTie? secondaryPortal = patch.SecondaryPortal is { } secondary
+            ? new PortalTie(secondary.Description, PortalDirectionText.Parse(secondary.Direction))
+            : null;
+
         _currentSettings = _currentSettings.WithPatch(
             patch.SelfBuffUpkeep, patch.RefusalRangeMeters, patch.RepliesPerSenderPerMinute,
             patch.IntakePaused, patch.HasTargetTier, patch.TargetTier, patch.TierFallback,
             patch.FizzlesBeforeSkip, patch.ComponentLowStock,
-            patch.ManaBounceLowWaterFraction, patch.ManaBounceHighWaterFraction, patch.SplitPeas);
+            patch.ManaBounceLowWaterFraction, patch.ManaBounceHighWaterFraction, patch.SplitPeas,
+            primaryPortal, secondaryPortal);
         _settingsStore?.Save(host.Automation.Character.ObjectId, _currentSettings);
         SyncSettingsIntoRuntime();
         host.Log.Info($"BuffBot settings updated via {source}.");
@@ -731,6 +759,26 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
 
     private bool StopActiveRun(uint requesterObjectId) =>
         _coordinator?.TryStopActiveRun(requesterObjectId, RunStopReason.RequesterCancelled) ?? false;
+
+    /// <summary>An operator's per-character setting, read fresh so a console edit lands on the
+    /// next tell.</summary>
+    private PortalTie PortalTieFor(PortalTieSlot slot) =>
+        slot == PortalTieSlot.Primary ? _currentSettings.PrimaryPortal : _currentSettings.SecondaryPortal;
+
+    /// <summary>Lets <see cref="Responder"/> refuse a doomed portal ask before an "On it." ack.</summary>
+    private bool KnowsPortalSpell(PortalTieSlot slot) =>
+        _host is { Automation.IsAvailable: true } host
+        && PortalSpellResolver.Resolve(host.Automation.Spells, slot).Count > 0;
+
+    private EnqueueResult EnqueuePortal(PortalRequest request) =>
+        _coordinator?.TryEnqueuePortal(request) ?? EnqueueResult.QueueFull;
+
+    private bool HasPendingPortal(uint requesterObjectId) =>
+        _coordinator?.HasPendingPortal(requesterObjectId) ?? false;
+
+    private int? PortalPositionFor(uint requesterObjectId) => _coordinator?.PortalPosition(requesterObjectId);
+
+    private bool CancelPortal(uint requesterObjectId) => _coordinator?.TryCancelPortal(requesterObjectId) ?? false;
 
     /// <summary>The last distance traced per requester, so <see cref="DistanceTo"/> logs again
     /// only when something worth reading has changed.</summary>
@@ -858,6 +906,13 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         if (string.Equals(argument, "logout", StringComparison.OrdinalIgnoreCase))
         {
             HandleLogoutCommand(host);
+            return;
+        }
+
+        if (string.Equals(argument, "console", StringComparison.OrdinalIgnoreCase))
+        {
+            if (host.Automation.IsAvailable)
+                HandleConsoleCommand(host);
             return;
         }
 
@@ -1226,6 +1281,19 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         host.Automation.Chat.PostSystemMessage($"logout: requested -> {requested}");
     }
 
+    /// <summary>Reads the mesh fresh rather than the panel's cached copy, so the reply is never a
+    /// tick stale.</summary>
+    private void HandleConsoleCommand(IPluginHost host) =>
+        host.Automation.Chat.PostSystemMessage(
+            ConsoleCommandReply(_mesh?.DescribeConsole().Link));
+
+    /// <summary>Host-free, and unlike <see cref="ConsoleLinkAnnouncer"/> ignores <see
+    /// cref="IPluginHost.HasUi"/> — an operator asking for the link always gets it back.</summary>
+    internal static string ConsoleCommandReply(string? link) =>
+        link is { Length: > 0 }
+            ? DefaultReplies.WebConsoleAnnouncement(link)
+            : DefaultReplies.WebConsoleNotUpYet;
+
     private void HandleChatDumpCommand(IPluginHost host, string rest)
     {
         if (!host.Automation.IsAvailable)
@@ -1269,6 +1337,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         _cachedCharacterObjectId = characterObjectId;
         _enabledForCachedCharacter = _enablement!.IsEnabled(characterObjectId);
         _announcedEnablementState = false;
+        _announcedPortalTieWarning = false;
 
         _currentSettings = _settingsStore?.Load(characterObjectId) ?? BuffBotSettings.Default;
     }
@@ -1306,6 +1375,45 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             : "BuffBot is inert for this character until enabled — send /buffbot on to switch it on.");
     }
 
+    /// <summary>Logs once per character, once the spellbook has actually arrived — never reads a
+    /// not-yet-populated catalog as "no summon spell learned".</summary>
+    private void AnnouncePortalTieWarningIfPossible(IPluginHost host)
+    {
+        if (!host.Automation.IsAvailable || _announcedPortalTieWarning)
+            return;
+
+        RefreshCacheIfCharacterChanged(host);
+
+        int knownSpellCount = host.Automation.Spells.All.Count;
+        if (knownSpellCount == 0)
+            return; // try again next tick; the once-per-load flag is not spent until it has
+
+        _announcedPortalTieWarning = true;
+
+        bool primaryStranded = IsStrandedPortalTie(PortalTieSlot.Primary);
+        bool secondaryStranded = IsStrandedPortalTie(PortalTieSlot.Secondary);
+        if (!ShouldWarnAboutStrandedPortalTie(knownSpellCount, primaryStranded, secondaryStranded))
+            return;
+
+        var stranded = new List<string>();
+        if (primaryStranded)
+            stranded.Add("primary");
+        if (secondaryStranded)
+            stranded.Add("secondary");
+
+        string warning = $"BuffBot: the {string.Join(" and ", stranded)} portal tie is offered, but this "
+            + "character knows no summon spell for it — those requests will be refused until one is learned.";
+        host.Log.Warn(warning);
+        host.Automation.Chat.PostSystemMessage(warning);
+    }
+
+    /// <summary>The pure decision behind <see cref="AnnouncePortalTieWarningIfPossible"/>.</summary>
+    internal static bool ShouldWarnAboutStrandedPortalTie(
+        int knownSpellCount, bool primaryStranded, bool secondaryStranded) =>
+        knownSpellCount > 0 && (primaryStranded || secondaryStranded);
+
+    private bool IsStrandedPortalTie(PortalTieSlot slot) => PortalTieFor(slot).IsOffered && !KnowsPortalSpell(slot);
+
     private void ToggleEnabledFromPanel(bool enabled)
     {
         if (_host is { } host)
@@ -1330,8 +1438,10 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         // coordinator afterward so the run in flight still resolves.
         if (!enabled && _coordinator is not null)
         {
-            IReadOnlyList<BuffRequest> drained = _coordinator.RequestStopForDisable();
-            foreach (BuffRequest request in drained)
+            (IReadOnlyList<BuffRequest> buffs, IReadOnlyList<PortalRequest> portals) = _coordinator.RequestStopForDisable();
+            foreach (BuffRequest request in buffs)
+                SendClosingReply(host, request.RequesterObjectId, request.RequesterName, DefaultReplies.TakingABreak);
+            foreach (PortalRequest request in portals)
                 SendClosingReply(host, request.RequesterObjectId, request.RequesterName, DefaultReplies.TakingABreak);
         }
         else if (enabled)

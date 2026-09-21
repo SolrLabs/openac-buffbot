@@ -1172,6 +1172,35 @@ footer {
         </div>
 
         <div class="field">
+          <span class="lbl">Portals</span>
+          <p>Where a portal drops a requester, and which way they should expect to be facing once they land. Leave the description blank to turn a tie off.</p>
+        </div>
+
+        <div class="field">
+          <label for="primary-portal-description">Primary portal tie</label>
+          <input type="text" id="primary-portal-description" placeholder="e.g. Temple of Enlightenment — or leave blank">
+          <select id="primary-portal-direction" aria-label="Primary portal tie direction">
+            <option value="front">Front</option>
+            <option value="right">Right</option>
+            <option value="behind">Behind</option>
+            <option value="left">Left</option>
+          </select>
+          <span class="cmd-result" id="primary-portal-result"></span>
+        </div>
+
+        <div class="field">
+          <label for="secondary-portal-description">Secondary portal tie</label>
+          <input type="text" id="secondary-portal-description" placeholder="e.g. Temple of Enlightenment — or leave blank">
+          <select id="secondary-portal-direction" aria-label="Secondary portal tie direction">
+            <option value="front">Front</option>
+            <option value="right">Right</option>
+            <option value="behind">Behind</option>
+            <option value="left">Left</option>
+          </select>
+          <span class="cmd-result" id="secondary-portal-result"></span>
+        </div>
+
+        <div class="field">
           <span class="lbl">Vocabulary <span class="sample-chip">Sample</span></span>
           <div class="actions">
             <button type="button">Reload phrase table</button>
@@ -1732,6 +1761,30 @@ footer {
       { componentLowStock: Number(lowStock.value) }, lowStock, document.getElementById("low-stock-result"));
   });
 
+  // Each tie posts as one object -- the description and the direction always travel together,
+  // matching the mesh's whole-tie patch contract.
+  var primaryPortalDescription = document.getElementById("primary-portal-description");
+  var primaryPortalDirection = document.getElementById("primary-portal-direction");
+  var primaryPortalResult = document.getElementById("primary-portal-result");
+  function postPrimaryPortal() {
+    postSettings(
+      { primaryPortal: { description: primaryPortalDescription.value, direction: primaryPortalDirection.value } },
+      primaryPortalDescription, primaryPortalResult);
+  }
+  primaryPortalDescription.addEventListener("change", postPrimaryPortal);
+  primaryPortalDirection.addEventListener("change", postPrimaryPortal);
+
+  var secondaryPortalDescription = document.getElementById("secondary-portal-description");
+  var secondaryPortalDirection = document.getElementById("secondary-portal-direction");
+  var secondaryPortalResult = document.getElementById("secondary-portal-result");
+  function postSecondaryPortal() {
+    postSettings(
+      { secondaryPortal: { description: secondaryPortalDescription.value, direction: secondaryPortalDirection.value } },
+      secondaryPortalDescription, secondaryPortalResult);
+  }
+  secondaryPortalDescription.addEventListener("change", postSecondaryPortal);
+  secondaryPortalDirection.addEventListener("change", postSecondaryPortal);
+
   // Pause intake toggles off whatever the hub last reported (renderControls below keeps
   // pausedNow in sync), rather than assuming the button's own idle label.
   var pausedNow = false;
@@ -1876,6 +1929,18 @@ footer {
       lowStock.value = settings.componentLowStock == null
         ? BuffBotSettingsDefaults.componentLowStock
         : settings.componentLowStock;
+    });
+    setIfNotActive(primaryPortalDescription, function () {
+      primaryPortalDescription.value = (settings.primaryPortal && settings.primaryPortal.description) || "";
+    });
+    setIfNotActive(primaryPortalDirection, function () {
+      primaryPortalDirection.value = (settings.primaryPortal && settings.primaryPortal.direction) || "front";
+    });
+    setIfNotActive(secondaryPortalDescription, function () {
+      secondaryPortalDescription.value = (settings.secondaryPortal && settings.secondaryPortal.description) || "";
+    });
+    setIfNotActive(secondaryPortalDirection, function () {
+      secondaryPortalDirection.value = (settings.secondaryPortal && settings.secondaryPortal.direction) || "front";
     });
     if (!manaHandleDragging) {
       manaBounceLow = settings.manaBounceLowWaterFraction == null

@@ -1466,6 +1466,26 @@ public sealed class CastStateMachineTests
     }
 
     [Fact]
+    public void RemainingPlanExcludesTheLineAlreadyCastAfterAPortalCutIn()
+    {
+        var (machine, magic, _, _) = PreparedMachine();
+        ResolvedSpell second = Resolved(family: 11, tier: 1, spellId: 43);
+        machine.Begin([Resolved(family: 10, tier: 1, spellId: 42), second], Target, TargetName);
+        magic.Gate = PluginCastGate.Ready;
+
+        Assert.Null(machine.Advance(0, [])); // the first cast is now in flight
+        machine.RequestStop(RunStopReason.PortalCutIn);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 1, SpellId: 42, TargetObjectId: Target, WeenieError: 0);
+        CastRunResult? result = machine.Advance(0.1, [Confirm("Strength Other I", TargetName)]);
+
+        Assert.NotNull(result);
+        Assert.Equal(RunStopReason.PortalCutIn, result!.StopReason);
+        ResolvedSpell remaining = Assert.Single(machine.RemainingPlan);
+        Assert.Equal(second.Spell.SpellId, remaining.Spell.SpellId); // the confirmed cast is not remaining
+    }
+
+    [Fact]
     public void FailedCompletionSkipsThatSpellWithoutWaitingForConfirmation()
     {
         var (machine, magic, _, _) = PreparedMachine();

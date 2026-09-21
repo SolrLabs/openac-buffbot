@@ -5,6 +5,12 @@ internal enum ChatKind
 {
     Tell = 3,
 
-    /// <summary>Server system chat, including the cast-confirmation message.</summary>
-    System = 4,
+    System = 4, // server chat, including the cast-confirmation message
+}
+
+/// <summary>Values on <c>PluginChatMessage.LogTextType</c>, needed beyond <see cref="ChatKind"/>.</summary>
+internal static class LogTextTypes
+{
+    // Mirrors the host's RetailLogTextType.Magic; still ChatKind.System, unlike unrelated chat.
+    internal const int Magic = 0x07;
 }

@@ -24,4 +24,8 @@ internal enum Intent
     Cancel,
 
     Contribute, // answered immediately, like Status, never queued
+
+    Where, // answered immediately, like Status, never queued
+    PortalPrimary,
+    PortalSecondary,
 }

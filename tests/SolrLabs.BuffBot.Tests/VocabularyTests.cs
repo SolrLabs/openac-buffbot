@@ -100,6 +100,25 @@ public sealed class VocabularyTests
         Assert.DoesNotContain("logout", help);
         Assert.DoesNotContain("chatdump", help);
     }
+
+    [Theory]
+    [InlineData("where", nameof(Intent.Where))]
+    [InlineData("whereto", nameof(Intent.Where))]
+    [InlineData("primary", nameof(Intent.PortalPrimary))]
+    [InlineData("Secondary", nameof(Intent.PortalSecondary))]
+    public void PortalPhrasesResolve(string text, string expectedName)
+    {
+        Assert.True(DefaultVocabulary.Table.TryResolve(text, out Intent intent));
+        Assert.Equal(expectedName, intent.ToString());
+    }
+
+    [Fact]
+    public void HelpMentionsPortalsOnlyWhenOffered()
+    {
+        Assert.DoesNotContain("primary", DefaultReplies.Help(DefaultVocabulary.Table));
+        Assert.Contains(
+            "where, primary, secondary", DefaultReplies.Help(DefaultVocabulary.Table, portalsOffered: true));
+    }
 }
 
 /// <summary>ACE replaces characters outside ASCII with '?' before relaying,

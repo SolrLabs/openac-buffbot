@@ -1,6 +1,7 @@
 using SolrLabs.BuffBot.Casting;
 using SolrLabs.BuffBot.Components;
 using SolrLabs.BuffBot.Donations;
+using SolrLabs.BuffBot.Portals;
 using SolrLabs.BuffBot.Vocabulary;
 
 namespace SolrLabs.BuffBot.Tests;
@@ -531,6 +532,48 @@ public sealed class DefaultRepliesTests
         // Every shape now also carries OpenTradeInvite's own sentence, a fixed cost on top of the
         // already-bounded reagent list — still worth a ceiling so this cannot grow without bound.
         Assert.True(reply.Length <= 255, $"contribute reply is {reply.Length} chars: {reply}");
+    }
+
+    // -- Portals ------------------------------------------------------------------------------------
+
+    [Fact]
+    public void WhereListsOnlyDescribedTiesVerbatim()
+    {
+        Assert.Equal("Primary: Aerlinthe, dangerous drop.", DefaultReplies.Where("Aerlinthe, dangerous drop", null));
+        Assert.Equal("Primary: A. Secondary: B.", DefaultReplies.Where("A", "B"));
+    }
+
+    [Fact]
+    public void WhereWithNeitherTieDescribedSaysPortalsAreNotOffered()
+    {
+        Assert.Equal(DefaultReplies.PortalNotOffered, DefaultReplies.Where(null, null));
+    }
+
+    [Fact]
+    public void SummoningPortalNamesTheDescription()
+    {
+        Assert.Equal("Summoning a portal to Aerlinthe.", DefaultReplies.SummoningPortal("Aerlinthe."));
+    }
+
+    [Fact]
+    public void NotTiedNamesTheSlot()
+    {
+        Assert.Equal("I'm not tied to a primary portal right now.", DefaultReplies.NotTied(PortalTieSlot.Primary));
+        Assert.Equal(
+            "I'm not tied to a secondary portal right now.", DefaultReplies.NotTied(PortalTieSlot.Secondary));
+    }
+
+    /// <summary>Not swept by <c>ReplyEncodingTests</c>'s reflection, being methods rather
+    /// than static fields, so this is their ASCII coverage instead.</summary>
+    [Fact]
+    public void PortalRepliesAreAscii()
+    {
+        string where = DefaultReplies.Where("Aerlinthe", "Bur");
+        string summoning = DefaultReplies.SummoningPortal("Aerlinthe");
+        string notTied = DefaultReplies.NotTied(PortalTieSlot.Primary);
+
+        foreach (char c in where + summoning + notTied)
+            Assert.True(c <= 0x7F, $"non-ASCII character U+{(int)c:X4} in a portal reply");
     }
 
     // -- Direct gives -----------------------------------------------------------------------------

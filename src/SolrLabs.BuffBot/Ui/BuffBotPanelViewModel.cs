@@ -74,6 +74,7 @@ internal sealed class BuffBotPanelViewModel
         BotActivity.Serving => $"Serving {_status.CurrentRequesterName}",
         BotActivity.SelfBuffing => "Self-buffing",
         BotActivity.ToppingUp => "Topping up mana",
+        BotActivity.SummoningPortal => "Summoning a portal",
         _ => "Idle",
     };
 

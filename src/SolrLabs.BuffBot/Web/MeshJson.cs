@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SolrLabs.BuffBot.Donations;
+using SolrLabs.BuffBot.Portals;
 
 namespace SolrLabs.BuffBot.Web;
 
@@ -116,6 +117,8 @@ internal static class MeshJson
                 ["manaBounceLowWaterFraction"] = status.Settings.ManaBounceLowWaterFraction,
                 ["manaBounceHighWaterFraction"] = status.Settings.ManaBounceHighWaterFraction,
                 ["splitPeas"] = status.Settings.SplitPeas,
+                ["primaryPortal"] = PortalTieObject(status.Settings.PrimaryPortal ?? MeshPortalTie.Empty),
+                ["secondaryPortal"] = PortalTieObject(status.Settings.SecondaryPortal ?? MeshPortalTie.Empty),
             },
             ["components"] = ComponentsObject(status.Components),
             ["tradeOpen"] = status.TradeOpen,
@@ -144,6 +147,22 @@ internal static class MeshJson
             ["catalog"] = components.CatalogAvailable,
         };
     }
+
+    private static JsonObject PortalTieObject(MeshPortalTie tie) => new()
+    {
+        ["description"] = tie.Description,
+        ["direction"] = tie.Direction,
+    };
+
+    /// <summary>A missing key parses as <see cref="MeshPortalTie.Empty"/>; a present key must be an object, with <c>description</c> and <c>direction</c> each defaulting when missing.</summary>
+    private static MeshPortalTie ParsePortalTie(JsonObject root, string name) =>
+        root.TryGetPropertyValue(name, out JsonNode? node) && node is JsonObject tieObject
+            ? ParsePortalTieObject(tieObject)
+            : MeshPortalTie.Empty;
+
+    private static MeshPortalTie ParsePortalTieObject(JsonObject tieObject) => new(
+        OptionalString(tieObject, "description") ?? "",
+        PortalDirectionText.ToText(PortalDirectionText.Parse(OptionalString(tieObject, "direction"))));
 
     internal static JsonObject Bot(MeshBot bot) => new()
     {
@@ -253,6 +272,8 @@ internal static class MeshJson
         if (patch.ManaBounceHighWaterFraction is { } manaBounceHighWaterFraction)
             json["manaBounceHighWaterFraction"] = manaBounceHighWaterFraction;
         if (patch.SplitPeas is { } splitPeas) json["splitPeas"] = splitPeas;
+        if (patch.PrimaryPortal is { } primaryPortal) json["primaryPortal"] = PortalTieObject(primaryPortal);
+        if (patch.SecondaryPortal is { } secondaryPortal) json["secondaryPortal"] = PortalTieObject(secondaryPortal);
         return json;
     }
 
@@ -382,11 +403,13 @@ internal static class MeshJson
         if (!TryOptionalDouble(root, "manaBounceLowWaterFraction", out double? manaBounceLowWaterFraction)) return null;
         if (!TryOptionalDouble(root, "manaBounceHighWaterFraction", out double? manaBounceHighWaterFraction)) return null;
         if (!TryOptionalBool(root, "splitPeas", out bool? splitPeas)) return null;
+        if (!TryOptionalPortalTie(root, "primaryPortal", out MeshPortalTie? primaryPortal)) return null;
+        if (!TryOptionalPortalTie(root, "secondaryPortal", out MeshPortalTie? secondaryPortal)) return null;
 
         return new MeshSettingsPatch(
             selfBuffUpkeep, refusalRangeMeters, repliesPerSenderPerMinute, intakePaused,
             hasTargetTier, targetTier, tierFallback, fizzlesBeforeSkip, componentLowStock,
-            manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas);
+            manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas, primaryPortal, secondaryPortal);
     }
 
     private static MeshStatus? TryParseStatus(JsonObject root)
@@ -447,6 +470,9 @@ internal static class MeshJson
         double manaBounceHighWaterFraction = OptionalDouble(settingsObject, "manaBounceHighWaterFraction")
             ?? Settings.BuffBotSettings.DefaultManaBounceHighWaterFraction;
         bool splitPeas = OptionalBool(settingsObject, "splitPeas") ?? Settings.BuffBotSettings.DefaultSplitPeas;
+        // Additive, absent on a body written before ties existed and that always meant no tie set.
+        MeshPortalTie primaryPortal = ParsePortalTie(settingsObject, "primaryPortal");
+        MeshPortalTie secondaryPortal = ParsePortalTie(settingsObject, "secondaryPortal");
 
         if (!root.TryGetPropertyValue("components", out JsonNode? componentsNode) || componentsNode is not JsonObject componentsObject)
             return null;
@@ -495,7 +521,8 @@ internal static class MeshJson
             new MeshSettings(
                 selfBuffUpkeep, refusalRangeMeters, repliesPerSenderPerMinute, intakePaused,
                 targetTier, tierFallback, fizzlesBeforeSkip, componentLowStock,
-                manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas),
+                manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas,
+                primaryPortal, secondaryPortal),
             new MeshComponents(componentsAvailable, componentItems, componentsCatalogAvailable),
             currentHealth, maxHealth, currentStamina, maxStamina,
             tradeOpen, donationsCompleted, donationItemsReceived);
@@ -686,4 +713,13 @@ internal static class MeshJson
         root.TryGetPropertyValue(name, out JsonNode? node) && node is JsonValue v && v.TryGetValue(out uint u)
             ? u
             : null;
+
+    /// <summary>Absent leaves <paramref name="value"/> null — the patch does not touch this tie; present must be an object, or the whole patch is rejected.</summary>
+    private static bool TryOptionalPortalTie(JsonObject root, string name, out MeshPortalTie? value)
+    {
+        if (!root.TryGetPropertyValue(name, out JsonNode? node)) { value = null; return true; }
+        if (node is not JsonObject tieObject) { value = null; return false; }
+        value = ParsePortalTieObject(tieObject);
+        return true;
+    }
 }

@@ -102,6 +102,9 @@ internal enum RunStopReason
     RequesterCancelled,
 
     BotDisabling,
+
+    // A portal summon needs to cut in ahead of the rest of the chain; the coordinator resumes it after.
+    PortalCutIn,
 }
 
 // ComponentCeilingRung is non-null only when a step accepted a lower tier for lack of components.
@@ -137,8 +140,9 @@ internal sealed class CastStateMachine
 
     private const double DefaultConfirmationTimeoutSeconds = 12d;
 
-    // The completion still reports a zero-error use-done for a fizzle; this text is the only signal.
-    private const string FizzleText = "Your spell fizzled.";
+    // The completion still reports a zero-error use-done for a fizzle; this text is the only
+    // signal. internal: a test also sends it as an unrelated Magic-class line during a portal wait.
+    internal const string FizzleText = "Your spell fizzled.";
 
     private const int MaxManaBouncesPerRun = 24;
 
@@ -275,6 +279,10 @@ internal sealed class CastStateMachine
     private double _prepElapsedSeconds;
     private double _busyElapsedSeconds;
     private bool _observedCastingThisCast;
+
+    // True once a zero-error completion for the current cast has been consumed; distinguishes a
+    // dropped landing line from no server result at all when the confirmation window lapses.
+    private bool _completionObservedThisCast;
     private double _confirmationElapsedSeconds;
     private long _revisionBeforeCast;
 
@@ -330,6 +338,13 @@ internal sealed class CastStateMachine
 
     internal bool IsWaitingOnServer => _magic.IsCasting; // may still resolve after this machine stopped waiting locally
 
+    // True while a request is out and this machine is waiting on its own confirmation text.
+    internal bool IsWaitingForConfirmation => IsRunning && _phase == Phase.WaitingForConfirmation;
+
+    // True once a zero-error completion for the step currently in flight has been consumed, even
+    // with no landed-cast text seen yet. PortalRun watches this instead of waiting out the window.
+    internal bool CurrentStepCompletionObserved => IsRunning && _completionObservedThisCast;
+
     internal string? CurrentSpellLine => IsRunning && _index < _plan.Count ? _plan[_index].Line : null;
 
     internal uint CurrentSpellId => IsRunning && _index < _plan.Count ? _plan[_index].Spell.SpellId : 0u;
@@ -337,6 +352,28 @@ internal sealed class CastStateMachine
     internal int StepIndex => IsRunning ? _index : 0;
 
     internal int StepCount => IsRunning ? _plan.Count : 0;
+
+    // Valid after a Stopped result: the lines from the current index on, minus any mana-upkeep
+    // line spliced in ahead of a bounce -- cast or not, it is never one of the requester's own buffs.
+    internal IReadOnlyList<ResolvedSpell> RemainingPlan
+    {
+        get
+        {
+            if (_index >= _plan.Count)
+                return Array.Empty<ResolvedSpell>();
+
+            var remaining = new List<ResolvedSpell>(_plan.Count - _index);
+            for (int i = _index; i < _plan.Count; i++)
+            {
+                if (!_manaUpkeepSpellIds.Contains(_plan[i].Spell.SpellId))
+                    remaining.Add(_plan[i]);
+            }
+            return remaining;
+        }
+    }
+
+    // Set once and never overwritten: a cut-in must never displace a cancel or disable already pending.
+    internal bool IsStopRequested => _stopRequested;
 
     internal uint CurrentMana => _character.CurrentMana;
 
@@ -621,6 +658,7 @@ internal sealed class CastStateMachine
 
                         _revisionBeforeCast = _magic.LastCompletion.Revision;
                         _observedCastingThisCast = false;
+                        _completionObservedThisCast = false;
                         _confirmationElapsedSeconds = 0;
                         _phase = Phase.WaitingForConfirmation;
                         return null;
@@ -820,6 +858,7 @@ internal sealed class CastStateMachine
 
                         // Consumed: don't re-warn every tick while still waiting on the chat line.
                         _revisionBeforeCast = completion.Revision;
+                        _completionObservedThisCast = true;
                     }
 
                     _confirmationElapsedSeconds += deltaSeconds;

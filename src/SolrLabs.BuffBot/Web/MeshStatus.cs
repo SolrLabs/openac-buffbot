@@ -49,7 +49,13 @@ internal readonly record struct MeshWaitingEntry(uint ObjectId, string Name, str
 internal readonly record struct MeshCounters(
     int TellsAnswered, int CastsLanded, int Fizzles, int ManaBounces, int TierStepDowns);
 
-/// <summary>Field names match <see cref="Settings.BuffBotSettings"/> one for one, camelCased on the way out by <see cref="MeshJson"/>. <see cref="ManaBounceLowWaterFraction"/> and <see cref="ManaBounceHighWaterFraction"/> are the mana bar's draggable handles, fractions of max mana; defaulted so a body from before this pair existed still parses as the 20%/80% it always meant.</summary>
+/// <summary>The wire's shape for a <see cref="Portals.PortalTie"/> — <see cref="Direction"/> carries the lower-case wire word, not the enum, the same way <see cref="MeshStatus.Activity"/> and <see cref="MeshRecentEvent.Kind"/> already cross the wire.</summary>
+internal sealed record MeshPortalTie(string Description, string Direction)
+{
+    internal static readonly MeshPortalTie Empty = new("", "front");
+}
+
+/// <summary>Field names match <see cref="Settings.BuffBotSettings"/> one for one, camelCased on the way out by <see cref="MeshJson"/>. <see cref="ManaBounceLowWaterFraction"/> and <see cref="ManaBounceHighWaterFraction"/> are the mana bar's draggable handles, fractions of max mana; defaulted so a body from before this pair existed still parses as the 20%/80% it always meant. <see cref="PrimaryPortal"/> and <see cref="SecondaryPortal"/> default to <see langword="null"/> rather than <see cref="MeshPortalTie.Empty"/> when this struct itself is default-constructed — guard with <c>?? MeshPortalTie.Empty</c>, the same guard <see cref="MeshComponents.Items"/> already needs.</summary>
 internal readonly record struct MeshSettings(
     bool SelfBuffUpkeep,
     double RefusalRangeMeters,
@@ -61,7 +67,9 @@ internal readonly record struct MeshSettings(
     int ComponentLowStock = Settings.BuffBotSettings.DefaultComponentLowStock,
     double ManaBounceLowWaterFraction = Settings.BuffBotSettings.DefaultManaBounceLowWaterFraction,
     double ManaBounceHighWaterFraction = Settings.BuffBotSettings.DefaultManaBounceHighWaterFraction,
-    bool SplitPeas = Settings.BuffBotSettings.DefaultSplitPeas);
+    bool SplitPeas = Settings.BuffBotSettings.DefaultSplitPeas,
+    MeshPortalTie? PrimaryPortal = null,
+    MeshPortalTie? SecondaryPortal = null);
 
 /// <summary>Field names match <see cref="Components.ComponentUsage"/> one for one, camelCased on the way out by <see cref="MeshJson"/>.</summary>
 internal readonly record struct MeshComponentItem(uint WeenieClassId, string Name, int Stock, int UsedBy);

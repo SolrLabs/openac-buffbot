@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AcDream.Plugin.Abstractions;
+using SolrLabs.BuffBot.Portals;
 
 namespace SolrLabs.BuffBot.Settings;
 
@@ -42,11 +43,19 @@ internal sealed class BuffBotSettingsStore
         ["targetTier"] = settings.TargetTier,
         ["tierFallback"] = settings.TierFallback,
         ["fizzlesBeforeSkip"] = settings.FizzlesBeforeSkip,
+        ["primaryPortal"] = PortalTieObject(settings.PrimaryPortal),
+        ["secondaryPortal"] = PortalTieObject(settings.SecondaryPortal),
         ["componentLowStock"] = settings.ComponentLowStock,
         ["manaBounceLowWaterFraction"] = settings.ManaBounceLowWaterFraction,
         ["manaBounceHighWaterFraction"] = settings.ManaBounceHighWaterFraction,
         ["splitPeas"] = settings.SplitPeas,
     }.ToJsonString();
+
+    private static JsonObject PortalTieObject(PortalTie tie) => new()
+    {
+        ["description"] = tie.Description,
+        ["direction"] = PortalDirectionText.ToText(tie.Direction),
+    };
 
     /// <summary>Field by field: a malformed field defaults rather than taking the rest of the record down with it.</summary>
     private static BuffBotSettings Parse(string json)
@@ -63,10 +72,23 @@ internal sealed class BuffBotSettingsStore
             OptionalInt(root, "targetTier"),
             OptionalBool(root, "tierFallback") ?? BuffBotSettings.DefaultTierFallback,
             OptionalInt(root, "fizzlesBeforeSkip") ?? BuffBotSettings.DefaultFizzlesBeforeSkip,
+            ParsePortalTie(root, "primaryPortal"),
+            ParsePortalTie(root, "secondaryPortal"),
             OptionalInt(root, "componentLowStock") ?? BuffBotSettings.DefaultComponentLowStock,
             OptionalDouble(root, "manaBounceLowWaterFraction") ?? BuffBotSettings.DefaultManaBounceLowWaterFraction,
             OptionalDouble(root, "manaBounceHighWaterFraction") ?? BuffBotSettings.DefaultManaBounceHighWaterFraction,
             OptionalBool(root, "splitPeas") ?? BuffBotSettings.DefaultSplitPeas);
+    }
+
+    /// <summary>A missing key, or a value of the wrong shape, both fall back to <see cref="PortalTie.Empty"/>.</summary>
+    private static PortalTie ParsePortalTie(JsonObject root, string name)
+    {
+        if (!root.TryGetPropertyValue(name, out JsonNode? node) || node is not JsonObject tieObject)
+            return PortalTie.Empty;
+
+        string description = OptionalString(tieObject, "description") ?? "";
+        PortalDirection direction = PortalDirectionText.Parse(OptionalString(tieObject, "direction"));
+        return new PortalTie(description, direction);
     }
 
     private static JsonObject? TryParseObject(string json)
@@ -94,5 +116,10 @@ internal sealed class BuffBotSettingsStore
     private static double? OptionalDouble(JsonObject root, string name) =>
         root.TryGetPropertyValue(name, out JsonNode? node) && node is JsonValue v && v.TryGetValue(out double d)
             ? d
+            : null;
+
+    private static string? OptionalString(JsonObject root, string name) =>
+        root.TryGetPropertyValue(name, out JsonNode? node) && node is JsonValue v && v.TryGetValue(out string? s)
+            ? s
             : null;
 }

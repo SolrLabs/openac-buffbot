@@ -1,3 +1,5 @@
+using SolrLabs.BuffBot.Portals;
+
 namespace SolrLabs.BuffBot.Settings;
 
 /// <summary>Every per-character setting the web console's Controls section writes. A plain value, clamped on construction; the mesh's settings patch and <see cref="BuffBotSettingsStore"/> are the only things that touch it from outside this ring. Every field is read live, once a tick, taking effect on the next run rather than the one already in flight.</summary>
@@ -9,6 +11,8 @@ internal sealed record BuffBotSettings(
     int? TargetTier,
     bool TierFallback,
     int FizzlesBeforeSkip,
+    PortalTie PrimaryPortal,
+    PortalTie SecondaryPortal,
     int ComponentLowStock = BuffBotSettings.DefaultComponentLowStock,
     double ManaBounceLowWaterFraction = BuffBotSettings.DefaultManaBounceLowWaterFraction,
     double ManaBounceHighWaterFraction = BuffBotSettings.DefaultManaBounceHighWaterFraction,
@@ -64,6 +68,8 @@ internal sealed record BuffBotSettings(
         TargetTier: null,
         DefaultTierFallback,
         DefaultFizzlesBeforeSkip,
+        PortalTie.Empty,
+        PortalTie.Empty,
         DefaultComponentLowStock,
         DefaultManaBounceLowWaterFraction,
         DefaultManaBounceHighWaterFraction,
@@ -87,13 +93,15 @@ internal sealed record BuffBotSettings(
             TargetTier is { } tier ? Math.Clamp(tier, MinTargetTier, MaxTargetTier) : null,
             TierFallback,
             Math.Clamp(FizzlesBeforeSkip, MinFizzlesBeforeSkip, MaxFizzlesBeforeSkip),
+            PrimaryPortal.Clamped(),
+            SecondaryPortal.Clamped(),
             Math.Clamp(ComponentLowStock, MinComponentLowStock, MaxComponentLowStock),
             clampedLow,
             clampedHigh,
             SplitPeas);
     }
 
-    /// <summary>Applies a partial change, each field left alone when its patch value is <see langword="null"/> — except <see cref="TargetTier"/>, whose <paramref name="hasTargetTier"/> tells an explicit "set it back to top learned" apart from "untouched". Clamped on the way out.</summary>
+    /// <summary>Applies a partial change, each field left alone when its patch value is <see langword="null"/> — except <see cref="TargetTier"/>, whose <paramref name="hasTargetTier"/> tells an explicit "set it back to top learned" apart from "untouched". A tie patches as a whole: <paramref name="primaryPortal"/> or <paramref name="secondaryPortal"/> null leaves that tie alone, non-null replaces it outright. Clamped on the way out.</summary>
     internal BuffBotSettings WithPatch(
         bool? selfBuffUpkeep,
         double? refusalRangeMeters,
@@ -106,7 +114,9 @@ internal sealed record BuffBotSettings(
         int? componentLowStock = null,
         double? manaBounceLowWaterFraction = null,
         double? manaBounceHighWaterFraction = null,
-        bool? splitPeas = null) => new BuffBotSettings(
+        bool? splitPeas = null,
+        PortalTie? primaryPortal = null,
+        PortalTie? secondaryPortal = null) => new BuffBotSettings(
         selfBuffUpkeep ?? SelfBuffUpkeep,
         refusalRangeMeters ?? RefusalRangeMeters,
         repliesPerSenderPerMinute ?? RepliesPerSenderPerMinute,
@@ -114,6 +124,8 @@ internal sealed record BuffBotSettings(
         hasTargetTier ? targetTier : TargetTier,
         tierFallback ?? TierFallback,
         fizzlesBeforeSkip ?? FizzlesBeforeSkip,
+        primaryPortal ?? PrimaryPortal,
+        secondaryPortal ?? SecondaryPortal,
         componentLowStock ?? ComponentLowStock,
         manaBounceLowWaterFraction ?? ManaBounceLowWaterFraction,
         manaBounceHighWaterFraction ?? ManaBounceHighWaterFraction,
