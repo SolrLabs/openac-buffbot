@@ -2,6 +2,23 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
+## 0.1.0-beta.4 — 2026-09-21
+
+### Added
+
+- **Portal summoning.** Tell the bot `where` (or `whereto`) to hear where its portals go, then
+  `primary` or `secondary` to have it summon one. The bot casts the strongest Summon Portal it
+  knows, announces it in local chat, and turns back the way it was facing afterwards.
+- **Portal settings** on the web console's Settings tab: a description for each tie, stated to
+  players exactly as you write it (so "Aerlinthe — dangerous drop" works), and which side of the
+  bot the portal appears on: front, right, behind or left.
+- **A portal request cuts into a buff.** Someone asking for a portal while the bot is buffing
+  another player gets it between two spells; the buff then carries on where it left off, without
+  recasting anything.
+- **The web console link on a headless bot.** A bot running without a window prints its console
+  link, token included, at the console when it comes up, and again whenever it changes.
+  `/buffbot console` prints it on demand, on either host.
+
 ## 0.1.0-beta.3 — 2026-09-21
 
 ### Fixed
