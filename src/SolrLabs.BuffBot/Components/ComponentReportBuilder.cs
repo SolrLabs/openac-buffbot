@@ -19,7 +19,8 @@ internal static class ComponentReportBuilder
         if (!inventoryReadable)
             return ComponentReport.Unavailable;
 
-        IReadOnlyList<PluginSpellInfo> spells = ResolveNeededSpells(catalog.KnownSelfBuffs, allLearnedTiers);
+        IReadOnlyList<PluginSpellInfo> spells =
+            ResolveNeededSpells(BeneficialSpellCatalog.Resolve(catalog), allLearnedTiers);
 
         var usedByComponent = new Dictionary<uint, int>();
         foreach (PluginSpellInfo spell in spells)

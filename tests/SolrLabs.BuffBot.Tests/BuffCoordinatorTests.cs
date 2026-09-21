@@ -1068,6 +1068,42 @@ public sealed class BuffCoordinatorTests
         Assert.False(coordinator.WouldFindNothingLearned(DefaultSpellSets.Buff, Catalog));
     }
 
+    // -- OpenAC 8b2c5147: KnownSelfBuffs narrowed to self-targetable spells only ----------------
+
+    [Fact]
+    public void ADev2StyleCatalogFindsNothingLearnedFromKnownSelfBuffsAloneButResolvesThroughTheUnion()
+    {
+        var (coordinator, _, _) = NewCoordinator(new RequestQueue(5));
+        var dev2Catalog = new Dev2StyleCatalog();
+
+        // What BuffBotPlugin read before this fix: a self-only KnownSelfBuffs finds nothing for
+        // a profile made entirely of "... Other" lines.
+        Assert.True(coordinator.WouldFindNothingLearned(DefaultSpellSets.Buff, dev2Catalog.KnownSelfBuffs));
+
+        // BeneficialSpellCatalog.Resolve finds "Strength Other" through All + IsKnown even though
+        // it never made KnownSelfBuffs.
+        Assert.False(coordinator.WouldFindNothingLearned(
+            DefaultSpellSets.Buff, BeneficialSpellCatalog.Resolve(dev2Catalog)));
+    }
+
+    [Fact]
+    public void ADev2StyleCatalogStillCastsTheBuffProfileThroughTheUnionCatalog()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue);
+        var dev2Catalog = new Dev2StyleCatalog();
+
+        Pump(coordinator, [], enabled: true, replies, catalog: BeneficialSpellCatalog.Resolve(dev2Catalog));
+        Assert.Equal([SelfSpellId], magic.SentSpellIds);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: SelfSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump(
+            coordinator, [SelfConfirm("Focus Self VI")], enabled: true, replies,
+            catalog: BeneficialSpellCatalog.Resolve(dev2Catalog));
+        Assert.Equal([SelfSpellId, OtherSpellId], magic.SentSpellIds);
+    }
+
     // -- idle mana top-up once the queue empties ---------------------------------------------------
 
     [Fact]
@@ -1644,6 +1680,33 @@ public sealed class BuffCoordinatorTests
             _sent.Add(spellId);
             IsCasting = true;
             return PluginCastRequestResult.Sent;
+        }
+    }
+
+    /// <summary>Mirrors OpenAC dev.2 after 8b2c5147 (<c>RuntimeAutomationSurface.RebuildSpellbook</c>'s
+    /// added <c>CanTargetSelf</c> check): <see cref="ISpellCatalog.KnownSelfBuffs"/> holds only the
+    /// self-targeted spell in <see cref="Catalog"/>; the requester's own "Strength Other" line is
+    /// just as genuinely learned, but only <see cref="ISpellCatalog.All"/> plus <see
+    /// cref="ISpellCatalog.IsKnown"/> say so.</summary>
+    private sealed class Dev2StyleCatalog : ISpellCatalog
+    {
+        public IReadOnlyList<PluginSpellInfo> KnownSelfBuffs { get; } = [Catalog[0]];
+
+        public IReadOnlyList<PluginSpellInfo> All => Catalog;
+
+        public bool IsKnown(uint spellId) => spellId == SelfSpellId || spellId == OtherSpellId;
+
+        public bool TryGet(uint spellId, out PluginSpellInfo info)
+        {
+            foreach (PluginSpellInfo spell in Catalog)
+            {
+                if (spell.SpellId != spellId)
+                    continue;
+                info = spell;
+                return true;
+            }
+            info = default;
+            return false;
         }
     }
 

@@ -92,6 +92,17 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
 
     private ComponentReport _lastComponents = ComponentReport.Unavailable;
 
+    /// <summary>Cached against <see cref="ISpellCatalog.KnownSelfBuffs"/> and <see
+    /// cref="ISpellCatalog.All"/>'s counts, since <see cref="PumpCoordinator"/> reads it every
+    /// tick and <see cref="BeneficialSpellCatalog.Resolve"/> rebuilds from scratch. Neither count
+    /// moves when an "... Other" spell is learned mid-session, so the cache also expires after
+    /// <see cref="BeneficialSpellsMaxAgeSeconds"/> of ticks.</summary>
+    private IReadOnlyList<PluginSpellInfo> _beneficialSpells = Array.Empty<PluginSpellInfo>();
+    private int _beneficialSpellsSelfBuffCount = -1;
+    private int _beneficialSpellsAllCount = -1;
+    private double _beneficialSpellsAgeSeconds;
+    private const double BeneficialSpellsMaxAgeSeconds = 5.0;
+
     /// <summary>Bumped only when <see cref="SampleComponents"/> actually resamples, so <see
     /// cref="_peaTopUpLoop"/> can tell a fresher report without comparing timestamps.</summary>
     private int _componentSampleGeneration;
@@ -227,6 +238,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
     {
         if (_host is not { Automation.IsAvailable: true } host)
             return;
+        _beneficialSpellsAgeSeconds += deltaSeconds;
 
         try
         {
@@ -320,7 +332,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
 
         BuffBotStatus status = _coordinator.Pump(
             deltaSeconds,
-            host.Automation.Spells.KnownSelfBuffs,
+            ResolveBeneficialSpells(host),
             host.Automation.Character.ActiveEnchantments,
             captured,
             selfBuffingEnabled: _currentSettings.SelfBuffUpkeep,
@@ -350,6 +362,25 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         _lastStatus = status;
         _panel?.UpdateStatus(status);
         PublishMeshStatus(host, status);
+    }
+
+    /// <summary>Rebuilt when <see cref="ISpellCatalog.KnownSelfBuffs"/> or <see
+    /// cref="ISpellCatalog.All"/>'s count changes, or the cache has aged out, so the tick-hot
+    /// caller above does not rescan the whole content table every frame.</summary>
+    private IReadOnlyList<PluginSpellInfo> ResolveBeneficialSpells(IPluginHost host)
+    {
+        ISpellCatalog catalog = host.Automation.Spells;
+        int selfBuffCount = catalog.KnownSelfBuffs.Count;
+        int allCount = catalog.All.Count;
+        if (selfBuffCount != _beneficialSpellsSelfBuffCount || allCount != _beneficialSpellsAllCount
+            || _beneficialSpellsAgeSeconds >= BeneficialSpellsMaxAgeSeconds)
+        {
+            _beneficialSpells = BeneficialSpellCatalog.Resolve(catalog);
+            _beneficialSpellsSelfBuffCount = selfBuffCount;
+            _beneficialSpellsAllCount = allCount;
+            _beneficialSpellsAgeSeconds = 0;
+        }
+        return _beneficialSpells;
     }
 
     /// <summary>Ticked unconditionally so <see cref="PumpPeaSplitter"/> reads a settled gate.</summary>
@@ -690,7 +721,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             : Array.Empty<string>();
 
         return SelfBuffPlanner.PlanDue(
-            host.Automation.Spells.KnownSelfBuffs,
+            ResolveBeneficialSpells(host),
             selfLines,
             host.Automation.Character.ActiveEnchantments).Count > 0;
     }
@@ -701,7 +732,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
     /// <summary>Lets <see cref="Responder"/> refuse a doomed request before an "On it." ack.</summary>
     private bool WouldFindNothingLearned(string setName) =>
         _host is { Automation.IsAvailable: true } host
-        && (_coordinator?.WouldFindNothingLearned(setName, host.Automation.Spells.KnownSelfBuffs) ?? false);
+        && (_coordinator?.WouldFindNothingLearned(setName, ResolveBeneficialSpells(host)) ?? false);
 
     private bool StopActiveRun(uint requesterObjectId) =>
         _coordinator?.TryStopActiveRun(requesterObjectId, RunStopReason.RequesterCancelled) ?? false;
@@ -871,7 +902,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             host.Log.Info($"BuffBot items: wielded {item.ObjectId} \"{item.Name}\" ({item.ObjectClass}).");
 
         IReadOnlyList<ResolvedSpell> learnedItemLines = SpellSelector.ResolveLenient(
-            host.Automation.Spells.KnownSelfBuffs, DefaultSpellSets.AllItemTargetedLines(), SpellTargetKind.Other);
+            ResolveBeneficialSpells(host), DefaultSpellSets.AllItemTargetedLines(), SpellTargetKind.Other);
 
         if (castLine is null)
         {
