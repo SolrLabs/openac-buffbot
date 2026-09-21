@@ -2,6 +2,15 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
+## 0.1.0-beta.3 — 2026-09-21
+
+### Fixed
+
+- **Buffing works on OpenAC 0.1.13.** The client's list of self buffs now leaves out spells cast
+  on someone else, which is every buff the bot gives a player. On 0.1.13 test builds the bot
+  answered every request with "I haven't learned anything for buff yet" and cast nothing. It now
+  builds its spell list from everything the character knows, on 0.1.11 and later alike.
+
 ## 0.1.0-beta.2 — 2026-09-17
 
 First public build. Everything below is new.
