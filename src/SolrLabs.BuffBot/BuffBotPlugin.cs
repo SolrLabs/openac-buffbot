@@ -92,11 +92,8 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
 
     private ComponentReport _lastComponents = ComponentReport.Unavailable;
 
-    /// <summary>Cached against <see cref="ISpellCatalog.KnownSelfBuffs"/> and <see
-    /// cref="ISpellCatalog.All"/>'s counts, since <see cref="PumpCoordinator"/> reads it every
-    /// tick and <see cref="BeneficialSpellCatalog.Resolve"/> rebuilds from scratch. Neither count
-    /// moves when an "... Other" spell is learned mid-session, so the cache also expires after
-    /// <see cref="BeneficialSpellsMaxAgeSeconds"/> of ticks.</summary>
+    // Keyed on both list counts, plus an age limit: learning an "... Other" spell moves neither
+    // count.
     private IReadOnlyList<PluginSpellInfo> _beneficialSpells = Array.Empty<PluginSpellInfo>();
     private int _beneficialSpellsSelfBuffCount = -1;
     private int _beneficialSpellsAllCount = -1;
@@ -364,9 +361,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         PublishMeshStatus(host, status);
     }
 
-    /// <summary>Rebuilt when <see cref="ISpellCatalog.KnownSelfBuffs"/> or <see
-    /// cref="ISpellCatalog.All"/>'s count changes, or the cache has aged out, so the tick-hot
-    /// caller above does not rescan the whole content table every frame.</summary>
+    /// <summary>Cached, so the per-tick caller does not rescan the whole spell table.</summary>
     private IReadOnlyList<PluginSpellInfo> ResolveBeneficialSpells(IPluginHost host)
     {
         ISpellCatalog catalog = host.Automation.Spells;

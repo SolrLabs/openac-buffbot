@@ -3,9 +3,7 @@ using SolrLabs.BuffBot.Spells;
 
 namespace SolrLabs.BuffBot.Tests.Spells;
 
-/// <summary>Host-free coverage of <see cref="BeneficialSpellCatalog"/>: the fix for OpenAC
-/// 8b2c5147, which narrowed <see cref="ISpellCatalog.KnownSelfBuffs"/> to spells the caster can
-/// target on itself and silently dropped every "... Other" line a buff profile needs.</summary>
+/// <summary>Host-free coverage of <see cref="BeneficialSpellCatalog"/>.</summary>
 public sealed class BeneficialSpellCatalogTests
 {
     private const uint FocusSelfId = 1;

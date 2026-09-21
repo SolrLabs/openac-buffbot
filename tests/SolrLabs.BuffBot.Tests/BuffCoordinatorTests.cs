@@ -1683,11 +1683,8 @@ public sealed class BuffCoordinatorTests
         }
     }
 
-    /// <summary>Mirrors OpenAC dev.2 after 8b2c5147 (<c>RuntimeAutomationSurface.RebuildSpellbook</c>'s
-    /// added <c>CanTargetSelf</c> check): <see cref="ISpellCatalog.KnownSelfBuffs"/> holds only the
-    /// self-targeted spell in <see cref="Catalog"/>; the requester's own "Strength Other" line is
-    /// just as genuinely learned, but only <see cref="ISpellCatalog.All"/> plus <see
-    /// cref="ISpellCatalog.IsKnown"/> say so.</summary>
+    /// <summary>KnownSelfBuffs holds only the self spell; "Strength Other" is learned too, but only
+    /// All and IsKnown say so.</summary>
     private sealed class Dev2StyleCatalog : ISpellCatalog
     {
         public IReadOnlyList<PluginSpellInfo> KnownSelfBuffs { get; } = [Catalog[0]];

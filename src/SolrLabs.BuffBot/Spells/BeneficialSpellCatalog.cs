@@ -2,14 +2,8 @@ using AcDream.Plugin.Abstractions;
 
 namespace SolrLabs.BuffBot.Spells;
 
-/// <summary><see cref="ISpellCatalog.KnownSelfBuffs"/> only promises "beneficial spells the
-/// character can cast on themselves" — since OpenAC 8b2c5147, that excludes every "... Other"
-/// line a requester's own profile needs. This rebuilds the wider set <c>KnownSelfBuffs</c> held
-/// before that change: every learned spell that is beneficial, not a debuff, and not untargeted,
-/// self and other alike, sourced from <see cref="ISpellCatalog.All"/> and confirmed learned
-/// through <see cref="ISpellCatalog.IsKnown"/>. Unioned with <c>KnownSelfBuffs</c> itself,
-/// deduplicated by <see cref="PluginSpellInfo.SpellId"/>, so nothing either list reports is
-/// lost.</summary>
+/// <summary>Every learned, targeted, beneficial non-debuff spell, self and other alike.
+/// <see cref="ISpellCatalog.KnownSelfBuffs"/> holds only what the caster can target on itself.</summary>
 internal static class BeneficialSpellCatalog
 {
     internal static IReadOnlyList<PluginSpellInfo> Resolve(ISpellCatalog catalog)
