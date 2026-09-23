@@ -88,7 +88,8 @@ internal sealed class Responder
             : decision.Reason ?? DefaultReplies.Unresolved;
 
         string? admitted = _guard.Admit(
-            tell.SenderObjectId, tell.Sender, text, isUnresolvedReply: text == DefaultReplies.Unresolved);
+            tell.SenderObjectId, tell.Sender, text, isUnresolvedReply: text == DefaultReplies.Unresolved,
+            requestText: tell.Text);
         if (admitted is null)
             return null;
 

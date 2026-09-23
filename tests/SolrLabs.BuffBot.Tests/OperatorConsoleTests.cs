@@ -108,13 +108,12 @@ public sealed class OperatorConsoleTests
         Assert.NotNull(guard.Admit(SenderId, SenderName, "anything else", isUnresolvedReply: false));
     }
 
-    /// <summary>Trips the circuit breaker the same way three real replies would.</summary>
+    /// <summary>Trips the circuit breaker the same way real repeated requests would.</summary>
     private static void Mute(LoopGuard guard, uint senderId, string senderName)
     {
         const string repeated = "Stopped: no wand.";
-        guard.Admit(senderId, senderName, repeated, isUnresolvedReply: false);
-        guard.Admit(senderId, senderName, repeated, isUnresolvedReply: false);
-        guard.Admit(senderId, senderName, repeated, isUnresolvedReply: false);
+        for (int i = 0; i < LoopGuard.RepeatThreshold; i++)
+            guard.Admit(senderId, senderName, repeated, isUnresolvedReply: false, requestText: repeated);
     }
 
     private static LoopGuard NewGuard() => new(new FakeClock(), _ => { }, _ => { });

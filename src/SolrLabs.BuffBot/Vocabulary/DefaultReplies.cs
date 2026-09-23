@@ -48,8 +48,12 @@ internal static class DefaultReplies
 
     internal const string StartingWithManaTopUp = "On it. Topping up mana first.";
 
-    internal const string Pausing =
-        "I'm pausing replies to you for a bit: too many, too fast. I'll listen again in 10 minutes.";
+    internal static string Pausing(TimeSpan duration)
+    {
+        int minutes = (int)duration.TotalMinutes;
+        string minutesText = minutes == 1 ? "1 minute" : $"{minutes} minutes";
+        return $"I'm pausing replies to you for a bit: too many, too fast. I'll listen again in {minutesText}.";
+    }
 
     /// <summary>Sent as a system message, never a tell, by <c>/buffbot on</c>.</summary>
     internal const string Enabled = "BuffBot is on for this character.";
@@ -515,7 +519,7 @@ internal static class DefaultReplies
         Starting,
         StartingWithSelfBuffs,
         StartingWithManaTopUp,
-        Pausing,
+        "I'm pausing replies to you for a bit: too many, too fast. I'll listen again in *.",
         BeingServedNow,
         NotInLine,
         RemovedFromLine,

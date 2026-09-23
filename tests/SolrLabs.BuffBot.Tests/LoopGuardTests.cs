@@ -4,7 +4,7 @@ using SolrLabs.BuffBot.Vocabulary;
 
 namespace SolrLabs.BuffBot.Tests;
 
-/// <summary>Host-free, fake-clock-driven coverage of the loop guard's four rules (a)-(d).</summary>
+/// <summary>Host-free, fake-clock-driven coverage of the loop guard's rules (a)-(e).</summary>
 public sealed class LoopGuardTests
 {
     private const uint Sender = 42;
@@ -120,10 +120,10 @@ public sealed class LoopGuardTests
         Assert.Single(warns);
     }
 
-    // a donation reply never trips the breaker -----------------------------------------------
+    // a reply with no request behind it never trips the breaker -------------------------------
 
     [Fact]
-    public void RepeatedDonationReplyNeverTripsTheBreakerOrMutesTheSender()
+    public void AReplyWithNoRequestBehindItNeverTripsTheBreakerOrMutesTheSender()
     {
         var guard = NewGuard(out _, out List<string> warns);
         const string repeated = "Thank you! I will put this to good use.";
@@ -131,8 +131,7 @@ public sealed class LoopGuardTests
         for (int i = 0; i < LoopGuard.RepeatThreshold * 5; i++)
         {
             string? admitted = guard.Admit(
-                Sender, SenderName, repeated, isUnresolvedReply: false, countsAsRequest: false,
-                countsTowardMuteTrigger: false);
+                Sender, SenderName, repeated, isUnresolvedReply: false, countsAsRequest: false);
             Assert.Equal(repeated, admitted); // never swapped for the "pausing" tell
         }
 
@@ -142,19 +141,36 @@ public sealed class LoopGuardTests
     }
 
     [Fact]
-    public void ADonationReplyToAnAlreadyMutedSenderIsStillSilenced()
+    public void ARequestlessReplyToAnAlreadyMutedSenderIsStillSilenced()
     {
         var guard = NewGuard(out _, out _);
-        const string unrelated = "Stopped: no wand.";
-        guard.Admit(Sender, SenderName, unrelated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, unrelated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, unrelated, isUnresolvedReply: false); // trips the breaker
+        const string repeated = "Stopped: no wand.";
+        Trip(guard, repeated);
 
-        string? donationReply = guard.Admit(
+        string? closingReply = guard.Admit(
             Sender, SenderName, "Thank you! I will put this to good use.", isUnresolvedReply: false,
-            countsAsRequest: false, countsTowardMuteTrigger: false);
+            countsAsRequest: false);
 
-        Assert.Null(donationReply); // still muted: the exemption only means a donation reply cannot mute, not that it bypasses one
+        Assert.Null(closingReply); // a requestless reply still doesn't bypass an existing mute
+    }
+
+    // the exact live scenario: different asks that happen to answer the same way --------------
+
+    [Fact]
+    public void ThreeDifferentRequestsThatAllProduceTheSameReplyDoNotMuteTheSender()
+    {
+        var guard = NewGuard(out _, out List<string> warns);
+        const string sameReply = "I'm not offering portals right now.";
+
+        Assert.Equal(sameReply, guard.Admit(
+            Sender, SenderName, sameReply, isUnresolvedReply: false, requestText: "whereto"));
+        Assert.Equal(sameReply, guard.Admit(
+            Sender, SenderName, sameReply, isUnresolvedReply: false, requestText: "where"));
+        Assert.Equal(sameReply, guard.Admit(
+            Sender, SenderName, sameReply, isUnresolvedReply: false, requestText: "primary"));
+
+        Assert.Empty(warns);
+        Assert.Empty(guard.MutedSenderNames());
     }
 
     // a settings-driven rate limit ------------------------------------------------------------
@@ -188,16 +204,33 @@ public sealed class LoopGuardTests
     // (c) ---------------------------------------------------------------------------------
 
     [Fact]
-    public void SameReplyThreeTimesWithinTheRepeatWindowMutesTheSenderAndSendsOnePausingTell()
+    public void FiveIdenticalRequestsWithinTheRepeatWindowMutesTheSenderAndSendsThePausingTell()
     {
         var guard = NewGuard(out _, out List<string> warns);
         const string repeated = "Stopped: no wand.";
 
-        Assert.Equal(repeated, guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false));
-        Assert.Equal(repeated, guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false));
-        string? third = guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
+        for (int i = 0; i < LoopGuard.RepeatThreshold - 1; i++)
+        {
+            Assert.Equal(repeated, guard.Admit(
+                Sender, SenderName, repeated, isUnresolvedReply: false, requestText: repeated));
+        }
+        string? last = guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false, requestText: repeated);
 
-        Assert.Equal(DefaultReplies.Pausing, third);
+        Assert.Equal(DefaultReplies.Pausing(LoopGuard.FirstMuteDuration), last);
+        Assert.Single(warns);
+    }
+
+    [Fact]
+    public void RequestTextComparisonIsTrimmedCaseInsensitiveAndCollapsesInnerWhitespace()
+    {
+        var guard = NewGuard(out _, out List<string> warns);
+        const string reply = "Okay.";
+
+        for (int i = 0; i < LoopGuard.RepeatThreshold - 1; i++)
+            guard.Admit(Sender, SenderName, reply, isUnresolvedReply: false, requestText: "  Where   to  ");
+        string? last = guard.Admit(Sender, SenderName, reply, isUnresolvedReply: false, requestText: "WHERE TO");
+
+        Assert.Equal(DefaultReplies.Pausing(LoopGuard.FirstMuteDuration), last);
         Assert.Single(warns);
     }
 
@@ -207,15 +240,86 @@ public sealed class LoopGuardTests
         var clock = new FakeClock();
         var guard = new LoopGuard(clock, _ => { }, _ => { });
         const string repeated = "Stopped: no wand.";
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false); // trips the breaker
+        Trip(guard, repeated);
 
         Assert.Null(guard.Admit(Sender, SenderName, "anything", isUnresolvedReply: false));
 
-        clock.Advance(LoopGuard.MuteDuration + TimeSpan.FromSeconds(1));
+        clock.Advance(LoopGuard.FirstMuteDuration + TimeSpan.FromSeconds(1));
 
         Assert.NotNull(guard.Admit(Sender, SenderName, "anything", isUnresolvedReply: false));
+    }
+
+    // (e) escalating mute -------------------------------------------------------------------
+
+    [Fact]
+    public void SuccessiveStrikesEscalateOneTwoFourThenHoldAtFour()
+    {
+        var clock = new FakeClock();
+        var guard = new LoopGuard(clock, _ => { }, _ => { });
+        const string repeated = "Stopped: no wand.";
+
+        (string? firstReply, TimeSpan first) = TripBreaker(guard, clock, repeated);
+        Assert.Equal(LoopGuard.FirstMuteDuration, first);
+        Assert.Equal(DefaultReplies.Pausing(first), firstReply);
+        clock.Advance(first + TimeSpan.FromSeconds(1));
+
+        (string? secondReply, TimeSpan second) = TripBreaker(guard, clock, repeated);
+        Assert.Equal(LoopGuard.SecondMuteDuration, second);
+        Assert.Equal(DefaultReplies.Pausing(second), secondReply);
+        clock.Advance(second + TimeSpan.FromSeconds(1));
+
+        (string? thirdReply, TimeSpan third) = TripBreaker(guard, clock, repeated);
+        Assert.Equal(LoopGuard.MaxMuteDuration, third);
+        Assert.Equal(DefaultReplies.Pausing(third), thirdReply);
+        clock.Advance(third + TimeSpan.FromSeconds(1));
+
+        (string? fourthReply, TimeSpan fourth) = TripBreaker(guard, clock, repeated);
+        Assert.Equal(LoopGuard.MaxMuteDuration, fourth); // caps here, never doubles again
+        Assert.Equal(DefaultReplies.Pausing(fourth), fourthReply);
+    }
+
+    [Fact]
+    public void EscalationResetsToTheFirstStrikeTwentyFourHoursAfterTheLastOne()
+    {
+        var clock = new FakeClock();
+        var guard = new LoopGuard(clock, _ => { }, _ => { });
+        const string repeated = "Stopped: no wand.";
+
+        (_, TimeSpan first) = TripBreaker(guard, clock, repeated);
+        Assert.Equal(LoopGuard.FirstMuteDuration, first);
+        clock.Advance(LoopGuard.EscalationResetWindow + TimeSpan.FromSeconds(1));
+
+        (_, TimeSpan afterReset) = TripBreaker(guard, clock, repeated);
+
+        Assert.Equal(LoopGuard.FirstMuteDuration, afterReset);
+    }
+
+    [Fact]
+    public void UnmuteResetsTheEscalationLadderSoTheNextStrikeStartsOver()
+    {
+        var clock = new FakeClock();
+        var guard = new LoopGuard(clock, _ => { }, _ => { });
+        const string repeated = "Stopped: no wand.";
+        TripBreaker(guard, clock, repeated);
+
+        guard.Unmute(Sender);
+        (_, TimeSpan afterUnmute) = TripBreaker(guard, clock, repeated);
+
+        Assert.Equal(LoopGuard.FirstMuteDuration, afterUnmute);
+    }
+
+    [Fact]
+    public void ClearMutesResetsTheEscalationLadderSoTheNextStrikeStartsOver()
+    {
+        var clock = new FakeClock();
+        var guard = new LoopGuard(clock, _ => { }, _ => { });
+        const string repeated = "Stopped: no wand.";
+        TripBreaker(guard, clock, repeated);
+
+        guard.ClearMutes();
+        (_, TimeSpan afterClear) = TripBreaker(guard, clock, repeated);
+
+        Assert.Equal(LoopGuard.FirstMuteDuration, afterClear);
     }
 
     // (d) ---------------------------------------------------------------------------------
@@ -268,10 +372,7 @@ public sealed class LoopGuardTests
     public void MutedSenderNamesNamesAMutedSenderByTheNameLastSeenOnThem()
     {
         var guard = NewGuard(out _, out _);
-        const string repeated = "Stopped: no wand.";
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false); // trips the breaker
+        Trip(guard, "Stopped: no wand.");
 
         Assert.Equal([SenderName], guard.MutedSenderNames());
     }
@@ -288,10 +389,7 @@ public sealed class LoopGuardTests
     public void ClearMutesLiftsTheMuteAndAnUnmutedSenderIsAnsweredAgain()
     {
         var guard = NewGuard(out _, out _);
-        const string repeated = "Stopped: no wand.";
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false); // trips the breaker
+        Trip(guard, "Stopped: no wand.");
         Assert.Null(guard.Admit(Sender, SenderName, "anything", isUnresolvedReply: false));
 
         MuteClearResult cleared = guard.ClearMutes();
@@ -308,15 +406,16 @@ public sealed class LoopGuardTests
     {
         var guard = NewGuard(out _, out List<string> warns);
         const string repeated = "Stopped: no wand.";
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false); // trips the breaker
+        Trip(guard, repeated);
         guard.ClearMutes();
 
-        // Two more of the same reply, right after clearing, must not re-trip on their own — the
+        // More of the same request, right after clearing, must not re-trip on their own -- the
         // repeat tally that got them muted the first time was reset, not carried forward.
-        Assert.Equal(repeated, guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false));
-        Assert.Equal(repeated, guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false));
+        for (int i = 0; i < LoopGuard.RepeatThreshold - 1; i++)
+        {
+            Assert.Equal(repeated, guard.Admit(
+                Sender, SenderName, repeated, isUnresolvedReply: false, requestText: repeated));
+        }
 
         Assert.Single(warns); // only the original mute, not a second one
     }
@@ -340,9 +439,9 @@ public sealed class LoopGuardTests
         var guard = new LoopGuard(clock, _ => { }, _ => { });
         guard.Mute(Sender, SenderName);
 
-        // Well past LoopGuard.MuteDuration, the automatic mute's own expiry -- a manual mute has
-        // no expiry to reach, by design: a judgement, not a rate-limit cooldown.
-        clock.Advance(LoopGuard.MuteDuration + LoopGuard.MuteDuration);
+        // Well past any automatic mute's own expiry -- a manual mute has no expiry to reach,
+        // by design: a judgement, not a rate-limit cooldown.
+        clock.Advance(LoopGuard.EscalationResetWindow + LoopGuard.EscalationResetWindow);
 
         Assert.Null(guard.Admit(Sender, SenderName, "anything", isUnresolvedReply: false));
     }
@@ -366,15 +465,13 @@ public sealed class LoopGuardTests
     {
         var clock = new FakeClock();
         var guard = new LoopGuard(clock, _ => { }, _ => { });
-        const string repeated = "Stopped: no wand.";
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false);
-        guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false); // trips the breaker
+        DateTimeOffset before = clock.UtcNow;
+        TripBreaker(guard, clock, "Stopped: no wand.");
 
         MutedEntry entry = Assert.Single(guard.MutedEntries());
 
         Assert.False(entry.IsManual);
-        Assert.Equal(clock.UtcNow + LoopGuard.MuteDuration, entry.Until);
+        Assert.Equal(before + LoopGuard.FirstMuteDuration, entry.Until);
     }
 
     [Fact]
@@ -406,9 +503,8 @@ public sealed class LoopGuardTests
         var guard = NewGuard(out _, out _);
         guard.Mute(Sender, SenderName); // manual
         const string repeated = "Stopped: no wand."; // trips the circuit breaker -- automatic
-        guard.Admit(2, "Auto", repeated, isUnresolvedReply: false);
-        guard.Admit(2, "Auto", repeated, isUnresolvedReply: false);
-        guard.Admit(2, "Auto", repeated, isUnresolvedReply: false);
+        for (int i = 0; i < LoopGuard.RepeatThreshold; i++)
+            guard.Admit(2, "Auto", repeated, isUnresolvedReply: false, requestText: repeated);
 
         MuteClearResult result = guard.ClearMutes();
 
@@ -418,6 +514,26 @@ public sealed class LoopGuardTests
         Assert.Empty(guard.MutedEntries());
         Assert.NotNull(guard.Admit(Sender, SenderName, "anything", isUnresolvedReply: false));
         Assert.NotNull(guard.Admit(2, "Auto", "anything", isUnresolvedReply: false));
+    }
+
+    /// <summary>Trips the circuit breaker with <see cref="LoopGuard.RepeatThreshold"/> repeats
+    /// of the same request text.</summary>
+    private static void Trip(LoopGuard guard, string repeated)
+    {
+        for (int i = 0; i < LoopGuard.RepeatThreshold; i++)
+            guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false, requestText: repeated);
+    }
+
+    /// <summary>Like <see cref="Trip"/>, but also reports the last reply and how long the
+    /// resulting mute lasts, so a test can check the ladder's step.</summary>
+    private static (string? Reply, TimeSpan Duration) TripBreaker(LoopGuard guard, FakeClock clock, string repeated)
+    {
+        DateTimeOffset before = clock.UtcNow;
+        string? last = null;
+        for (int i = 0; i < LoopGuard.RepeatThreshold; i++)
+            last = guard.Admit(Sender, SenderName, repeated, isUnresolvedReply: false, requestText: repeated);
+        MutedEntry entry = Assert.Single(guard.MutedEntries());
+        return (last, entry.Until!.Value - before);
     }
 
     private static LoopGuard NewGuard(out List<string> infos, out List<string> warns)

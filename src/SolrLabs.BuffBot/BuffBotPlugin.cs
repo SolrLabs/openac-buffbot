@@ -404,8 +404,6 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             deltaSeconds, host.Automation.Character.IsInWorld, host.Automation.Character.ObjectId,
             host.Automation.Items.CaptureOwnedItems);
 
-    /// <summary>Replies go out with <c>isDonationReply: true</c>: exempt from the repeat breaker,
-    /// still blocked by an existing mute.</summary>
     private void PumpTradeDonations(IPluginHost host, double deltaSeconds, IReadOnlyList<PluginChatMessage> captured)
     {
         if (_tradeSession is null)
@@ -416,7 +414,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         uint partnerObjectId = host.Automation.Trade.PartnerObjectId;
         string partnerName = host.Automation.Trade.PartnerName;
         foreach (string reply in _tradeSession.DrainReplies())
-            SendClosingReply(host, partnerObjectId, partnerName, reply, isDonationReply: true);
+            SendClosingReply(host, partnerObjectId, partnerName, reply);
 
         foreach (CompletedDonation donation in _tradeSession.DrainCompletedDonations())
         {
@@ -842,14 +840,12 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         return metres;
     }
 
-    /// <summary>Exempt from the rate limit; <paramref name="isDonationReply"/> also exempts it
-    /// from the repeat breaker, so several donations in a row can never mute the donor.</summary>
-    private void SendClosingReply(
-        IPluginHost host, uint requesterObjectId, string requesterName, string text, bool isDonationReply = false)
+    /// <summary>Exempt from the rate limit; carries no request text of its own, so it can
+    /// never trip the repeat breaker either.</summary>
+    private void SendClosingReply(IPluginHost host, uint requesterObjectId, string requesterName, string text)
     {
         string? admitted = _guard.Admit(
-            requesterObjectId, requesterName, text, isUnresolvedReply: false, countsAsRequest: false,
-            countsTowardMuteTrigger: !isDonationReply);
+            requesterObjectId, requesterName, text, isUnresolvedReply: false, countsAsRequest: false);
         if (admitted is null)
             return;
 

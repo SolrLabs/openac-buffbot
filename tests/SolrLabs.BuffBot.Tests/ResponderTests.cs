@@ -531,11 +531,29 @@ public sealed class ResponderTests
             DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, guard,
             contributionSummary: () => summary);
 
-        responder.Reply(Tell("Archer", "contribute"), tellsAnswered: 1);
-        responder.Reply(Tell("Archer", "contribute"), tellsAnswered: 2);
-        string? third = responder.Reply(Tell("Archer", "contribute"), tellsAnswered: 3);
+        string? last = null;
+        for (int i = 0; i < LoopGuard.RepeatThreshold; i++)
+            last = responder.Reply(Tell("Archer", "contribute"), tellsAnswered: i + 1);
 
-        Assert.Equal($"/tell Archer, {DefaultReplies.Pausing}", third);
+        Assert.Equal($"/tell Archer, {DefaultReplies.Pausing(LoopGuard.FirstMuteDuration)}", last);
+    }
+
+    /// <summary>The live bug: three different asks that happen to answer the same way must
+    /// never mute the sender for asking three different things.</summary>
+    [Fact]
+    public void ThreeDifferentUnansweredPortalAsksInARowDoNotMuteTheSender()
+    {
+        var guard = NewGuard();
+        var responder = new Responder(DefaultVocabulary.Table, Free(), new RequestQueue(5), Version, guard);
+
+        string? first = responder.Reply(Tell("Archer", "whereto"), tellsAnswered: 1);
+        string? second = responder.Reply(Tell("Archer", "where"), tellsAnswered: 2);
+        string? third = responder.Reply(Tell("Archer", "primary"), tellsAnswered: 3);
+
+        Assert.Equal($"/tell Archer, {DefaultReplies.PortalNotOffered}", first);
+        Assert.Equal($"/tell Archer, {DefaultReplies.PortalNotOffered}", second);
+        Assert.Equal($"/tell Archer, {DefaultReplies.PortalNotOffered}", third);
+        Assert.Empty(guard.MutedSenderNames());
     }
 
     // -- Portals --------------------------------------------------------------------------------

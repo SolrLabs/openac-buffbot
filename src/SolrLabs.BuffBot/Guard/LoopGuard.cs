@@ -11,10 +11,17 @@ internal sealed class LoopGuard
     internal const int MaxRequestsPerWindow = 12;
     internal static readonly TimeSpan RateLimitWindow = TimeSpan.FromSeconds(60);
 
-    /// <summary>Repeats of the exact same reply text trip the breaker.</summary>
-    internal const int RepeatThreshold = 3;
+    // Trips on repeats of the same normalised request, never the bot's own reply.
+    internal const int RepeatThreshold = 5;
     internal static readonly TimeSpan RepeatWindow = TimeSpan.FromSeconds(30);
-    internal static readonly TimeSpan MuteDuration = TimeSpan.FromMinutes(10);
+
+    // Successive automatic mutes escalate through these, then hold at the last one.
+    internal static readonly TimeSpan FirstMuteDuration = TimeSpan.FromMinutes(1);
+    internal static readonly TimeSpan SecondMuteDuration = TimeSpan.FromMinutes(2);
+    internal static readonly TimeSpan MaxMuteDuration = TimeSpan.FromMinutes(4);
+
+    // A sender's strikes reset once this long has passed since their last one.
+    internal static readonly TimeSpan EscalationResetWindow = TimeSpan.FromHours(24);
 
     internal static readonly TimeSpan UnresolvedReplyWindow = TimeSpan.FromSeconds(30);
 
@@ -56,14 +63,14 @@ internal sealed class LoopGuard
     }
 
     /// <summary>Returns the reply text, or <see langword="null"/> for nothing; <c>countsAsRequest</c>
-    /// is false for a closing reply, <c>countsTowardMuteTrigger</c> false for a donation reply.</summary>
+    /// is false for a closing reply. Pass <paramref name="requestText"/> as null for a bot-initiated reply with no request behind it, which can never trip the repeat breaker.</summary>
     internal string? Admit(
         uint senderObjectId,
         string senderName,
         string replyText,
         bool isUnresolvedReply,
-        bool countsAsRequest = true,
-        bool countsTowardMuteTrigger = true)
+        string? requestText = null,
+        bool countsAsRequest = true)
     {
         DateTimeOffset now = _clock.UtcNow;
         SenderState state = GetOrAdd(senderObjectId);
@@ -93,37 +100,9 @@ internal sealed class LoopGuard
             return null;
         }
 
-        if (!countsTowardMuteTrigger)
-        {
-            if (countsAsRequest)
-                state.RequestTimestamps.Enqueue(now);
-            if (isUnresolvedReply)
-                state.LastUnresolvedReply = now;
-            return replyText;
-        }
-
         string outgoing = replyText;
-        if (state.LastReplyText == replyText)
-        {
-            Trim(state.RepeatTimestamps, now, RepeatWindow);
-        }
-        else
-        {
-            state.RepeatTimestamps.Clear();
-            state.LastReplyText = replyText;
-        }
-        state.RepeatTimestamps.Enqueue(now);
-
-        if (state.RepeatTimestamps.Count >= RepeatThreshold)
-        {
-            state.AutoMutedUntil = now + MuteDuration;
-            state.RepeatTimestamps.Clear();
-            state.LastReplyText = null;
-            _logWarn(
-                $"muting {senderName} for {(int)MuteDuration.TotalMinutes} minutes "
-                    + $"after {RepeatThreshold} repeats of the same reply");
-            outgoing = DefaultReplies.Pausing;
-        }
+        if (requestText is not null)
+            outgoing = ApplyRepeatBreaker(state, senderName, now, requestText, replyText);
 
         if (countsAsRequest)
             state.RequestTimestamps.Enqueue(now);
@@ -131,6 +110,58 @@ internal sealed class LoopGuard
             state.LastUnresolvedReply = now;
 
         return outgoing;
+    }
+
+    // Bumps the repeat tally and, once it crosses RepeatThreshold, escalates the mute.
+    private string ApplyRepeatBreaker(
+        SenderState state, string senderName, DateTimeOffset now, string requestText, string replyText)
+    {
+        string normalizedRequest = NormalizeRequestText(requestText);
+        if (state.LastRequestText == normalizedRequest)
+            Trim(state.RepeatTimestamps, now, RepeatWindow);
+        else
+        {
+            state.RepeatTimestamps.Clear();
+            state.LastRequestText = normalizedRequest;
+        }
+        state.RepeatTimestamps.Enqueue(now);
+
+        if (state.RepeatTimestamps.Count < RepeatThreshold)
+            return replyText;
+
+        if (state.LastStrikeAt is null || now - state.LastStrikeAt.Value >= EscalationResetWindow)
+            state.MuteStrikeCount = 0;
+
+        TimeSpan duration = MuteDurationForStrike(state.MuteStrikeCount);
+        state.MuteStrikeCount++;
+        state.LastStrikeAt = now;
+        state.AutoMutedUntil = now + duration;
+        state.RepeatTimestamps.Clear();
+        state.LastRequestText = null;
+        _logWarn(
+            $"muting {senderName} for {FormatMinutes(duration)} "
+                + $"after {RepeatThreshold} repeats of the same request");
+        return DefaultReplies.Pausing(duration);
+    }
+
+    private static TimeSpan MuteDurationForStrike(int strikeIndex) => strikeIndex switch
+    {
+        0 => FirstMuteDuration,
+        1 => SecondMuteDuration,
+        _ => MaxMuteDuration,
+    };
+
+    private static string FormatMinutes(TimeSpan duration)
+    {
+        int minutes = (int)duration.TotalMinutes;
+        return minutes == 1 ? "1 minute" : $"{minutes} minutes";
+    }
+
+    // Trimmed, case-insensitive, inner whitespace collapsed.
+    private static string NormalizeRequestText(string text)
+    {
+        string[] words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', words).ToUpperInvariant();
     }
 
     /// <summary>Console-only; the panel uses <see cref="MutedEntries"/> instead.</summary>
@@ -173,8 +204,8 @@ internal sealed class LoopGuard
         state.IsManuallyMuted = true;
     }
 
-    /// <summary>Clears the repeat tally too, so a stale in-window count cannot immediately re-trip
-    /// the breaker. No-op if this sender was never muted.</summary>
+    /// <summary>Clears the repeat tally and the escalation ladder too, so a released sender
+    /// starts clean. No-op if this sender was never muted.</summary>
     internal void Unmute(uint senderObjectId)
     {
         if (!_senders.TryGetValue(senderObjectId, out SenderState? state))
@@ -182,12 +213,11 @@ internal sealed class LoopGuard
 
         state.IsManuallyMuted = false;
         state.AutoMutedUntil = null;
-        state.RepeatTimestamps.Clear();
-        state.LastReplyText = null;
+        ResetRepeatState(state);
     }
 
-    /// <summary>Clears repeat tallies too, as in <see cref="Unmute"/>. Returns how many of each
-    /// kind were lifted.</summary>
+    /// <summary>Clears repeat tallies and escalation ladders too, as in <see cref="Unmute"/>.
+    /// Returns how many of each kind were lifted.</summary>
     internal MuteClearResult ClearMutes()
     {
         DateTimeOffset now = _clock.UtcNow;
@@ -202,8 +232,7 @@ internal sealed class LoopGuard
 
             state.IsManuallyMuted = false;
             state.AutoMutedUntil = null;
-            state.RepeatTimestamps.Clear();
-            state.LastReplyText = null;
+            ResetRepeatState(state);
 
             if (wasManual)
                 manual++;
@@ -211,6 +240,14 @@ internal sealed class LoopGuard
                 automatic++;
         }
         return new MuteClearResult(automatic, manual);
+    }
+
+    private static void ResetRepeatState(SenderState state)
+    {
+        state.RepeatTimestamps.Clear();
+        state.LastRequestText = null;
+        state.MuteStrikeCount = 0;
+        state.LastStrikeAt = null;
     }
 
     private SenderState GetOrAdd(uint senderObjectId)
@@ -236,11 +273,13 @@ internal sealed class LoopGuard
     {
         internal readonly Queue<DateTimeOffset> RequestTimestamps = new();
         internal readonly Queue<DateTimeOffset> RepeatTimestamps = new();
-        internal string? LastReplyText;
+        internal string? LastRequestText;
         internal DateTimeOffset? LastUnresolvedReply;
 
         internal DateTimeOffset? AutoMutedUntil;
         internal bool IsManuallyMuted;
+        internal int MuteStrikeCount;
+        internal DateTimeOffset? LastStrikeAt;
         internal DateTimeOffset? LastBotShapeLog;
         internal DateTimeOffset? LastRateLimitLog;
         internal string? LastKnownName;

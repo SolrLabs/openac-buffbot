@@ -71,4 +71,14 @@ public sealed class BotShapeMatcherTests
         Assert.True(BotShapeMatcher.IsBotShaped(DefaultReplies.Help(DefaultVocabulary.Table, portalsOffered: false)));
         Assert.True(BotShapeMatcher.IsBotShaped(DefaultReplies.Help(DefaultVocabulary.Table, portalsOffered: true)));
     }
+
+    /// <summary>Pausing is no longer a const the pattern can share, so every rung of the mute
+    /// ladder is pinned here instead -- a reworded reply must not slip past the loop guard.</summary>
+    [Fact]
+    public void EveryPausingReplyOnTheMuteLadderIsRecognised()
+    {
+        Assert.True(BotShapeMatcher.IsBotShaped(DefaultReplies.Pausing(LoopGuard.FirstMuteDuration)));
+        Assert.True(BotShapeMatcher.IsBotShaped(DefaultReplies.Pausing(LoopGuard.SecondMuteDuration)));
+        Assert.True(BotShapeMatcher.IsBotShaped(DefaultReplies.Pausing(LoopGuard.MaxMuteDuration)));
+    }
 }

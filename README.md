@@ -176,7 +176,7 @@ Changes take effect on the bot's next run, and are saved per character.
 | **Idle self-buff upkeep** | On | Rebuff itself (masteries, Focus, Willpower, regeneration) whenever the queue is empty. |
 | **Split peas** | On | When a reagent drops below the low-stock mark, use a Splitting Tool on a matching pea to make more. |
 | **Refusal range** | 67.5 m | How close a player must be to be served (40 to 75 m). Set a little under the server's 75 m so a player who drifts doesn't break the chain. |
-| **Replies per sender** | 12 per minute | The flood guard (2 to 20). Beyond this, a player is rate limited. Sending the same thing over and over gets them muted for 10 minutes. |
+| **Replies per sender** | 12 per minute | The flood guard (2 to 20). Beyond this, a player is rate limited. Sending the same thing over and over gets them muted, starting at 1 minute and doubling on each repeat offense up to a 4-minute cap. |
 | **Component low-stock mark** | 25 | The stock level that turns a component red on the Components tab. |
 | **Primary portal** | Not set | Where the bot's primary portal goes, written in your own words (up to 160 characters) — players hear this text verbatim, so "Aerlinthe — dangerous drop" works. Leave it empty to offer no portal. |
 | **Primary portal side** | Front | Which side of the bot the portal appears on: front, right, behind or left. |
