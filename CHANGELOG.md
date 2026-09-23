@@ -2,6 +2,32 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
+## 0.1.0-beta.5.1 — 2026-09-23
+
+### Fixed
+
+- **Asking three different things no longer gets you muted.** The bot counted how often it had
+  repeated *itself*, so three distinct questions that happened to share one answer looked like
+  flooding and earned a ten-minute silence. It now counts what you actually said, five of the same
+  thing in a row rather than three, and a first mute lasts a minute instead of ten — two on the
+  next offence, four after that, all forgotten a day later.
+- **A portal description you type is kept.** The setting only saved when the text box lost focus,
+  and the console's own refresh would put the old text back before that happened, so an edit could
+  vanish without a word. It now saves as you type, and says "Saved." when it has.
+- **The bot gives up on someone who isn't there.** A player who logged off or walked out of range
+  while waiting used to reach the front of the queue and have a whole chain started on them. They
+  are told once, and the line moves on.
+
+### Added
+
+- **A pause between two people.** After someone is buffed, the bot waits a few seconds before
+  taking the next person, so the one it just finished has room to open a trade. Five to ten
+  seconds, seven by default, on the Settings tab as "Queue pause".
+
+### Changed
+
+- **Both portal ties share one block** on the Settings tab, a row each, with a wider description.
+
 ## 0.1.0-beta.5 — 2026-09-23
 
 ### Fixed
