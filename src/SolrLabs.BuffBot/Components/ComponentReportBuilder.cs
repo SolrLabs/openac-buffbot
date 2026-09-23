@@ -3,6 +3,10 @@ using SolrLabs.BuffBot.Spells;
 
 namespace SolrLabs.BuffBot.Components;
 
+/// <summary>Every <see cref="DefaultSpellSets.Table"/> line resolved once, ready for either the
+/// top learned tier or every learned tier to be selected from it.</summary>
+internal readonly record struct SpellSetResolution(IReadOnlyList<ResolvedSpell> ResolvedLines);
+
 /// <summary>Rows are narrowed to what <see cref="CastingReagents"/> calls a reagent; a carried
 /// reagent gets a row too, at <see cref="ComponentUsage.UsedBy"/> 0.</summary>
 internal static class ComponentReportBuilder
@@ -19,8 +23,45 @@ internal static class ComponentReportBuilder
         if (!inventoryReadable)
             return ComponentReport.Unavailable;
 
-        IReadOnlyList<PluginSpellInfo> spells =
-            ResolveNeededSpells(BeneficialSpellCatalog.Resolve(catalog), allLearnedTiers);
+        return Build(ResolveSpellSets(catalog), catalog, items, allLearnedTiers, usesScarabOnlyFormula);
+    }
+
+    /// <summary>The <see cref="DefaultSpellSets.Table"/> pass, shared by every report one sample
+    /// needs instead of resolved once per report.</summary>
+    internal static SpellSetResolution ResolveSpellSets(ISpellCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        IReadOnlyList<PluginSpellInfo> beneficial = BeneficialSpellCatalog.Resolve(catalog);
+        SpellSelector.SpellLineIndex index = SpellSelector.BuildIndex(beneficial);
+        var resolvedLines = new List<ResolvedSpell>();
+        foreach ((string setName, IReadOnlyList<string> lines) in DefaultSpellSets.Table)
+        {
+            if (string.Equals(setName, DefaultSpellSets.SelfDefence, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            SpellTargetKind kind =
+                string.Equals(setName, DefaultSpellSets.Self, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(setName, DefaultSpellSets.ManaUpkeep, StringComparison.OrdinalIgnoreCase)
+                    ? SpellTargetKind.Self
+                    : SpellTargetKind.Other;
+
+            resolvedLines.AddRange(SpellSelector.ResolveLenient(index, lines, kind));
+        }
+
+        return new SpellSetResolution(resolvedLines);
+    }
+
+    /// <summary>Builds one report from an already-resolved <see cref="ResolveSpellSets"/> result.
+    /// <paramref name="catalog"/> is still needed for <see cref="ISpellCatalog.TryGetComponent"/>.</summary>
+    internal static ComponentReport Build(
+        SpellSetResolution resolution, ISpellCatalog catalog, IItemAutomation items,
+        bool allLearnedTiers = false, Func<uint, bool>? usesScarabOnlyFormula = null)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(items);
+
+        IReadOnlyList<PluginSpellInfo> spells = SelectSpells(resolution, allLearnedTiers);
 
         var usedByComponent = new Dictionary<uint, int>();
         foreach (PluginSpellInfo spell in spells)
@@ -88,42 +129,30 @@ internal static class ComponentReportBuilder
         return new ComponentReport(true, rows);
     }
 
-    /// <summary>Every named set in <see cref="DefaultSpellSets.Table"/> except <see
-    /// cref="DefaultSpellSets.SelfDefence"/>, deduplicated by spell id.</summary>
-    private static IReadOnlyList<PluginSpellInfo> ResolveNeededSpells(
-        IReadOnlyList<PluginSpellInfo> catalog, bool allLearnedTiers)
+    /// <summary>Extracts either the top learned tier or every learned tier of each line <see
+    /// cref="ResolveSpellSets"/> resolved, deduplicated by spell id.</summary>
+    private static IReadOnlyList<PluginSpellInfo> SelectSpells(
+        SpellSetResolution resolution, bool allLearnedTiers)
     {
         var seenSpellIds = new HashSet<uint>();
         var spells = new List<PluginSpellInfo>();
 
-        foreach ((string setName, IReadOnlyList<string> lines) in DefaultSpellSets.Table)
+        foreach (ResolvedSpell resolved in resolution.ResolvedLines)
         {
-            if (string.Equals(setName, DefaultSpellSets.SelfDefence, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            SpellTargetKind kind =
-                string.Equals(setName, DefaultSpellSets.Self, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(setName, DefaultSpellSets.ManaUpkeep, StringComparison.OrdinalIgnoreCase)
-                    ? SpellTargetKind.Self
-                    : SpellTargetKind.Other;
-
-            foreach (ResolvedSpell resolved in SpellSelector.ResolveLenient(catalog, lines, kind))
+            if (!allLearnedTiers)
             {
-                if (!allLearnedTiers)
-                {
-                    if (seenSpellIds.Add(resolved.Spell.SpellId))
-                        spells.Add(resolved.Spell);
-                    continue;
-                }
-
-                IReadOnlyList<PluginSpellInfo> tiers =
-                    resolved.LearnedTiersDescending.Count > 0
-                        ? resolved.LearnedTiersDescending
-                        : [resolved.Spell];
-                foreach (PluginSpellInfo tier in tiers)
-                    if (seenSpellIds.Add(tier.SpellId))
-                        spells.Add(tier);
+                if (seenSpellIds.Add(resolved.Spell.SpellId))
+                    spells.Add(resolved.Spell);
+                continue;
             }
+
+            IReadOnlyList<PluginSpellInfo> tiers =
+                resolved.LearnedTiersDescending.Count > 0
+                    ? resolved.LearnedTiersDescending
+                    : [resolved.Spell];
+            foreach (PluginSpellInfo tier in tiers)
+                if (seenSpellIds.Add(tier.SpellId))
+                    spells.Add(tier);
         }
 
         return spells;

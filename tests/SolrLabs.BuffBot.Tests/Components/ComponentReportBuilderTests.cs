@@ -1,5 +1,7 @@
+using System.Collections;
 using AcDream.Plugin.Abstractions;
 using SolrLabs.BuffBot.Components;
+using SolrLabs.BuffBot.Spells;
 
 namespace SolrLabs.BuffBot.Tests.Components;
 
@@ -431,5 +433,56 @@ public sealed class ComponentReportBuilderTests
 
         Assert.Contains(report.Items, row => row.WeenieClassId == 20631u); // school 1: scarab-only
         Assert.Contains(report.Items, row => row.WeenieClassId == 690u); // school 2: raw formula, unchanged
+    }
+
+    // -- ResolveSpellSets shares one index across every named set --------------------------------
+
+    [Fact]
+    public void ResolveSpellSetsEnumeratesTheCatalogAtMostOnceRegardlessOfHowManySetsTableHas()
+    {
+        // One self- and one other-targeted spell per real DefaultSpellSets.Table line, so every
+        // named set has something to match.
+        var lineNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach ((string _, IReadOnlyList<string> lines) in DefaultSpellSets.Table)
+            foreach (string line in lines)
+                lineNames.Add(line);
+
+        var spells = new List<PluginSpellInfo>();
+        uint id = 1;
+        foreach (string line in lineNames)
+        {
+            spells.Add(Spell(id++, $"{line} I", isSelfTargeted: false));
+            spells.Add(Spell(id++, $"{line} I", isSelfTargeted: true));
+        }
+
+        var countingCatalog = new EnumerationCountingCatalog(spells);
+        var catalog = new FakeCatalog(countingCatalog);
+
+        ComponentReportBuilder.ResolveSpellSets(catalog);
+
+        Assert.True(
+            countingCatalog.EnumerationCount <= 1,
+            $"expected one shared index over the catalog, not one per named set; " +
+            $"saw {countingCatalog.EnumerationCount} enumerations for {DefaultSpellSets.Table.Count} sets");
+    }
+
+    /// <summary>Counts full enumerations rather than timing anything, per the workspace's rule
+    /// against fixed time windows in a regression test.</summary>
+    private sealed class EnumerationCountingCatalog(IReadOnlyList<PluginSpellInfo> inner)
+        : IReadOnlyList<PluginSpellInfo>
+    {
+        internal int EnumerationCount { get; private set; }
+
+        public int Count => inner.Count;
+
+        public PluginSpellInfo this[int index] => inner[index];
+
+        public IEnumerator<PluginSpellInfo> GetEnumerator()
+        {
+            EnumerationCount++;
+            return inner.GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

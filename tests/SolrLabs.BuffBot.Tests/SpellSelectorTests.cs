@@ -1,3 +1,4 @@
+using System.Collections;
 using AcDream.Plugin.Abstractions;
 using SolrLabs.BuffBot.Spells;
 
@@ -525,6 +526,53 @@ public sealed class SpellSelectorTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(lines, result.Plan.Select(resolved => resolved.Line));
+    }
+
+    // ── catalog enumeration cost (a rescan-per-line regression) ────────────────
+
+    [Fact]
+    public void ResolveLenientEnumeratesTheCatalogOnceRegardlessOfHowManyLinesAreAsked()
+    {
+        // 40 distinct lines, one learned spell apiece. TryResolveLine once rescanned the whole
+        // catalog per line -- 40 enumerations, not 1 -- so this counts work rather than time.
+        var spells = new List<PluginSpellInfo>();
+        var lines = new List<string>();
+        for (int i = 0; i < 40; i++)
+        {
+            string line = $"Line{i} Other";
+            lines.Add(line);
+            spells.Add(Spell((uint)(i + 1), $"{line} I", family: (uint)(100 + i), tier: 1));
+        }
+
+        var catalog = new EnumerationCountingCatalog(spells);
+
+        IReadOnlyList<ResolvedSpell> plan = SpellSelector.ResolveLenient(catalog, lines, SpellTargetKind.Other);
+
+        Assert.Equal(40, plan.Count);
+        Assert.True(
+            catalog.EnumerationCount <= 1,
+            $"expected one indexing pass over the catalog, not a rescan per line; " +
+            $"saw {catalog.EnumerationCount} enumerations for {lines.Count} lines");
+    }
+
+    /// <summary>Counts full enumerations rather than timing anything, per the workspace's rule
+    /// against fixed time windows in a regression test.</summary>
+    private sealed class EnumerationCountingCatalog(IReadOnlyList<PluginSpellInfo> inner)
+        : IReadOnlyList<PluginSpellInfo>
+    {
+        internal int EnumerationCount { get; private set; }
+
+        public int Count => inner.Count;
+
+        public PluginSpellInfo this[int index] => inner[index];
+
+        public IEnumerator<PluginSpellInfo> GetEnumerator()
+        {
+            EnumerationCount++;
+            return inner.GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     private static PluginSpellInfo Spell(

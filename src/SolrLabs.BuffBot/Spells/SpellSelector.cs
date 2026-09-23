@@ -64,6 +64,14 @@ internal static partial class SpellSelector
     [GeneratedRegex(@"^Incantation\s+of\s+(?<line>.+)$", RegexOptions.IgnoreCase)]
     private static partial Regex IncantationPrefixPattern();
 
+    /// <summary>One pass over the catalog, reusable across every set a caller resolves against it
+    /// (<see cref="Components.ComponentReportBuilder.ResolveSpellSets"/>) instead of one per set.</summary>
+    internal static SpellLineIndex BuildIndex(IReadOnlyList<PluginSpellInfo> catalog)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        return new SpellLineIndex(BuildLineIndex(catalog));
+    }
+
     /// <summary><paramref name="tierOffset"/> walks that many rungs down the learned ladder,
     /// clamped to the lowest tier rather than failing when it runs out.</summary>
     internal static SpellSelectionResult Resolve(
@@ -73,6 +81,18 @@ internal static partial class SpellSelector
         int tierOffset = 0)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        return Resolve(BuildIndex(catalog), lines, kind, tierOffset);
+    }
+
+    /// <summary>Same as the catalog overload, against an index a caller already built — the seam
+    /// <see cref="Components.ComponentReportBuilder.ResolveSpellSets"/> shares across sets.</summary>
+    internal static SpellSelectionResult Resolve(
+        SpellLineIndex index,
+        IReadOnlyList<string> lines,
+        SpellTargetKind kind = SpellTargetKind.Other,
+        int tierOffset = 0)
+    {
+        ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(lines);
 
         var plan = new List<ResolvedSpell>(lines.Count);
@@ -83,7 +103,7 @@ internal static partial class SpellSelector
                 return SpellSelectionResult.Failed(
                     new SpellPlanFailure(line, SpellPlanFailureKind.UnknownLine));
 
-            if (TryResolveLine(catalog, trimmed, kind, tierOffset) is not { } resolved)
+            if (TryResolveLine(index, trimmed, kind, tierOffset) is not { } resolved)
                 return SpellSelectionResult.Failed(
                     new SpellPlanFailure(trimmed, SpellPlanFailureKind.NothingLearned));
 
@@ -94,7 +114,7 @@ internal static partial class SpellSelector
     }
 
     /// <summary>An untrained line is dropped silently instead of failing every line behind it,
-    /// unlike <see cref="Resolve"/>.</summary>
+    /// unlike <see cref="Resolve(IReadOnlyList{PluginSpellInfo}, IReadOnlyList{string}, SpellTargetKind, int)"/>.</summary>
     internal static IReadOnlyList<ResolvedSpell> ResolveLenient(
         IReadOnlyList<PluginSpellInfo> catalog,
         IReadOnlyList<string> lines,
@@ -102,6 +122,17 @@ internal static partial class SpellSelector
         int tierOffset = 0)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        return ResolveLenient(BuildIndex(catalog), lines, kind, tierOffset);
+    }
+
+    /// <summary>Same as the catalog overload, against an already-built <see cref="SpellLineIndex"/>.</summary>
+    internal static IReadOnlyList<ResolvedSpell> ResolveLenient(
+        SpellLineIndex index,
+        IReadOnlyList<string> lines,
+        SpellTargetKind kind,
+        int tierOffset = 0)
+    {
+        ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(lines);
 
         var plan = new List<ResolvedSpell>(lines.Count);
@@ -110,7 +141,7 @@ internal static partial class SpellSelector
             string trimmed = line.Trim();
             if (trimmed.Length == 0)
                 continue;
-            if (TryResolveLine(catalog, trimmed, kind, tierOffset) is { } resolved)
+            if (TryResolveLine(index, trimmed, kind, tierOffset) is { } resolved)
                 plan.Add(resolved);
         }
 
@@ -128,6 +159,7 @@ internal static partial class SpellSelector
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(lines);
 
+        SpellLineIndex index = BuildIndex(catalog);
         var plan = new List<ResolvedSpell>(lines.Count);
         var unlearned = new List<string>();
         foreach (string line in lines)
@@ -137,7 +169,7 @@ internal static partial class SpellSelector
                 return SpellSelectionResult.Failed(
                     new SpellPlanFailure(line, SpellPlanFailureKind.UnknownLine));
 
-            if (TryResolveLine(catalog, trimmed, kind, tierOffset: 0, targetTier) is { } resolved)
+            if (TryResolveLine(index, trimmed, kind, tierOffset: 0, targetTier) is { } resolved)
                 plan.Add(resolved);
             else
                 unlearned.Add(trimmed);
@@ -146,19 +178,57 @@ internal static partial class SpellSelector
         return SpellSelectionResult.SuccessWithUnlearned(plan, unlearned);
     }
 
-    private static ResolvedSpell? TryResolveLine(
-        IReadOnlyList<PluginSpellInfo> catalog, string trimmedLine, SpellTargetKind kind, int tierOffset,
-        int? targetTier = null)
+    /// <summary>One catalog spell, keyed into <see cref="SpellLineIndex"/> by the line name its
+    /// <see cref="TierSuffixPattern"/>/<see cref="IncantationPrefixPattern"/> match carries.</summary>
+    internal readonly record struct LineCandidate(int Rank, int CatalogIndex, PluginSpellInfo Spell);
+
+    /// <summary>The whole catalog, indexed by line name once. Opaque outside this file — a
+    /// caller only ever builds one via <see cref="BuildIndex"/> and hands it back in.</summary>
+    internal sealed class SpellLineIndex
     {
-        var byRank = new Dictionary<int, (int CatalogIndex, PluginSpellInfo Spell)>();
+        private readonly Dictionary<string, List<LineCandidate>> _byLine;
+
+        internal SpellLineIndex(Dictionary<string, List<LineCandidate>> byLine) => _byLine = byLine;
+
+        internal IReadOnlyList<LineCandidate>? Candidates(string line) =>
+            _byLine.TryGetValue(line, out List<LineCandidate>? candidates) ? candidates : null;
+    }
+
+    /// <summary>One pass over <paramref name="catalog"/>, both target kinds mixed together — <see
+    /// cref="TryResolveLine"/> filters by kind at lookup time, not at build time.</summary>
+    private static Dictionary<string, List<LineCandidate>> BuildLineIndex(
+        IReadOnlyList<PluginSpellInfo> catalog)
+    {
+        var index = new Dictionary<string, List<LineCandidate>>(StringComparer.OrdinalIgnoreCase);
         int catalogIndex = 0;
         foreach (PluginSpellInfo spell in catalog)
         {
-            bool matchesKind = kind == SpellTargetKind.Self ? spell.IsSelfTargeted : !spell.IsSelfTargeted;
-            if (matchesKind && TryMatchLine(spell.Name, trimmedLine, out int rank)
-                && !byRank.ContainsKey(rank))
-                byRank[rank] = (catalogIndex, spell);
+            if (TryExtractLine(spell.Name, out string line, out int rank))
+            {
+                if (!index.TryGetValue(line, out List<LineCandidate>? candidates))
+                    index[line] = candidates = [];
+                candidates.Add(new LineCandidate(rank, catalogIndex, spell));
+            }
             catalogIndex++;
+        }
+
+        return index;
+    }
+
+    private static ResolvedSpell? TryResolveLine(
+        SpellLineIndex index, string trimmedLine, SpellTargetKind kind, int tierOffset,
+        int? targetTier = null)
+    {
+        if (index.Candidates(trimmedLine) is not { } candidates)
+            return null;
+
+        var byRank = new Dictionary<int, (int CatalogIndex, PluginSpellInfo Spell)>();
+        foreach (LineCandidate candidate in candidates)
+        {
+            bool matchesKind =
+                kind == SpellTargetKind.Self ? candidate.Spell.IsSelfTargeted : !candidate.Spell.IsSelfTargeted;
+            if (matchesKind && !byRank.ContainsKey(candidate.Rank))
+                byRank[candidate.Rank] = (candidate.CatalogIndex, candidate.Spell);
         }
 
         if (byRank.Count == 0)
@@ -176,10 +246,10 @@ internal static partial class SpellSelector
         for (int i = 0; i < matches.Count; i++)
             ladder[i] = matches[i].Spell;
 
-        int index = targetTier is { } target
+        int selectedIndex = targetTier is { } target
             ? IndexForTargetTier(matches, target)
             : Math.Clamp(tierOffset, 0, ladder.Length - 1);
-        return new ResolvedSpell(trimmedLine, ladder[index]) { LearnedTiersDescending = ladder };
+        return new ResolvedSpell(trimmedLine, ladder[selectedIndex]) { LearnedTiersDescending = ladder };
     }
 
     private static int IndexForTargetTier(
@@ -198,17 +268,18 @@ internal static partial class SpellSelector
 
     private static int EffectiveTierValue(int rank) => rank == int.MaxValue ? 8 : rank;
 
-    private static bool TryMatchLine(string spellName, string line, out int rank)
+    /// <summary>Pulls the line name and rank out of a catalog spell's own name, independent of any
+    /// particular requested line — what <see cref="BuildLineIndex"/> keys candidates by.</summary>
+    private static bool TryExtractLine(string spellName, out string line, out int rank)
     {
         rank = 0;
+        line = "";
         string trimmedName = spellName.Trim();
 
         Match suffixMatch = TierSuffixPattern().Match(trimmedName);
         if (suffixMatch.Success)
         {
-            if (!string.Equals(suffixMatch.Groups["line"].Value, line, StringComparison.OrdinalIgnoreCase))
-                return false;
-
+            line = suffixMatch.Groups["line"].Value;
             string suffix = suffixMatch.Groups["suffix"].Value;
             if (string.Equals(suffix, "Incantation", StringComparison.OrdinalIgnoreCase))
             {
@@ -221,9 +292,9 @@ internal static partial class SpellSelector
         }
 
         Match prefixMatch = IncantationPrefixPattern().Match(trimmedName);
-        if (prefixMatch.Success
-            && string.Equals(prefixMatch.Groups["line"].Value, line, StringComparison.OrdinalIgnoreCase))
+        if (prefixMatch.Success)
         {
+            line = prefixMatch.Groups["line"].Value;
             rank = int.MaxValue;
             return true;
         }

@@ -530,15 +530,25 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
                 ? BuildUsesScarabOnlyFormulaPredicate(host)
                 : null;
 
-            _lastComponents = ComponentReportBuilder.Build(
-                host.Automation.Spells, host.Automation.Items, inventoryReadable,
-                usesScarabOnlyFormula: _lastUsesScarabOnlyFormula);
+            ComponentReport allTiers;
+            if (inventoryReadable)
+            {
+                // One DefaultSpellSets.Table resolve, shared by both reports below instead of
+                // Build resolving the same lines twice.
+                SpellSetResolution resolution = ComponentReportBuilder.ResolveSpellSets(host.Automation.Spells);
+                _lastComponents = ComponentReportBuilder.Build(
+                    resolution, host.Automation.Spells, host.Automation.Items,
+                    usesScarabOnlyFormula: _lastUsesScarabOnlyFormula);
+                allTiers = ComponentReportBuilder.Build(
+                    resolution, host.Automation.Spells, host.Automation.Items, allLearnedTiers: true,
+                    usesScarabOnlyFormula: _lastUsesScarabOnlyFormula);
+            }
+            else
+            {
+                _lastComponents = ComponentReport.Unavailable;
+                allTiers = ComponentReport.Unavailable;
+            }
 
-            // The `contribute` keyword needs every learned tier's reagent, not just the top one
-            // the console tile shows.
-            ComponentReport allTiers = ComponentReportBuilder.Build(
-                host.Automation.Spells, host.Automation.Items, inventoryReadable, allLearnedTiers: true,
-                usesScarabOnlyFormula: _lastUsesScarabOnlyFormula);
             _lastContribution = ContributionAdvisor.Build(
                 allTiers, host.Automation.Items.CaptureOwnedItems(), inventoryReadable,
                 _currentSettings.ComponentLowStock);
