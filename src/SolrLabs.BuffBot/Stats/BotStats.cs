@@ -85,6 +85,7 @@ internal sealed class BotStats
         RefusalReason.OutOfRange => "out of range",
         RefusalReason.UnknownLine => "unknown line",
         RefusalReason.NothingLearned => "nothing learned in profile",
+        RefusalReason.Unresolvable => "requester not found",
         _ => "unknown",
     };
 }

@@ -660,7 +660,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             patch.IntakePaused, patch.HasTargetTier, patch.TargetTier, patch.TierFallback,
             patch.FizzlesBeforeSkip, patch.ComponentLowStock,
             patch.ManaBounceLowWaterFraction, patch.ManaBounceHighWaterFraction, patch.SplitPeas,
-            primaryPortal, secondaryPortal);
+            primaryPortal, secondaryPortal, patch.QueuePauseSeconds);
         _settingsStore?.Save(host.Automation.Character.ObjectId, _currentSettings);
         SyncSettingsIntoRuntime();
         host.Log.Info($"BuffBot settings updated via {source}.");
@@ -1367,6 +1367,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             _coordinator.FizzlesBeforeSkip = _currentSettings.FizzlesBeforeSkip;
             _coordinator.ManaBounceLowWaterFraction = _currentSettings.ManaBounceLowWaterFraction;
             _coordinator.ManaBounceHighWaterFraction = _currentSettings.ManaBounceHighWaterFraction;
+            _coordinator.QueuePauseSeconds = _currentSettings.QueuePauseSeconds;
         }
     }
 

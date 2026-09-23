@@ -92,6 +92,7 @@ internal static class MeshJson
                     ["outOfRange"] = status.Stats.Refused.OutOfRange,
                     ["unknownLine"] = status.Stats.Refused.UnknownLine,
                     ["nothingLearned"] = status.Stats.Refused.NothingLearned,
+                    ["unresolvable"] = status.Stats.Refused.Unresolvable,
                 },
                 ["lines"] = lines,
                 ["hours"] = hours,
@@ -119,6 +120,7 @@ internal static class MeshJson
                 ["splitPeas"] = status.Settings.SplitPeas,
                 ["primaryPortal"] = PortalTieObject(status.Settings.PrimaryPortal ?? MeshPortalTie.Empty),
                 ["secondaryPortal"] = PortalTieObject(status.Settings.SecondaryPortal ?? MeshPortalTie.Empty),
+                ["queuePauseSeconds"] = status.Settings.QueuePauseSeconds,
             },
             ["components"] = ComponentsObject(status.Components),
             ["tradeOpen"] = status.TradeOpen,
@@ -274,6 +276,7 @@ internal static class MeshJson
         if (patch.SplitPeas is { } splitPeas) json["splitPeas"] = splitPeas;
         if (patch.PrimaryPortal is { } primaryPortal) json["primaryPortal"] = PortalTieObject(primaryPortal);
         if (patch.SecondaryPortal is { } secondaryPortal) json["secondaryPortal"] = PortalTieObject(secondaryPortal);
+        if (patch.QueuePauseSeconds is { } queuePauseSeconds) json["queuePauseSeconds"] = queuePauseSeconds;
         return json;
     }
 
@@ -405,11 +408,13 @@ internal static class MeshJson
         if (!TryOptionalBool(root, "splitPeas", out bool? splitPeas)) return null;
         if (!TryOptionalPortalTie(root, "primaryPortal", out MeshPortalTie? primaryPortal)) return null;
         if (!TryOptionalPortalTie(root, "secondaryPortal", out MeshPortalTie? secondaryPortal)) return null;
+        if (!TryOptionalDouble(root, "queuePauseSeconds", out double? queuePauseSeconds)) return null;
 
         return new MeshSettingsPatch(
             selfBuffUpkeep, refusalRangeMeters, repliesPerSenderPerMinute, intakePaused,
             hasTargetTier, targetTier, tierFallback, fizzlesBeforeSkip, componentLowStock,
-            manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas, primaryPortal, secondaryPortal);
+            manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas, primaryPortal, secondaryPortal,
+            queuePauseSeconds);
     }
 
     private static MeshStatus? TryParseStatus(JsonObject root)
@@ -473,6 +478,9 @@ internal static class MeshJson
         // Additive, absent on a body written before ties existed and that always meant no tie set.
         MeshPortalTie primaryPortal = ParsePortalTie(settingsObject, "primaryPortal");
         MeshPortalTie secondaryPortal = ParsePortalTie(settingsObject, "secondaryPortal");
+        // Additive, absent on a body written before this setting existed and that always meant the default pause.
+        double queuePauseSeconds = OptionalDouble(settingsObject, "queuePauseSeconds")
+            ?? Settings.BuffBotSettings.DefaultQueuePauseSeconds;
 
         if (!root.TryGetPropertyValue("components", out JsonNode? componentsNode) || componentsNode is not JsonObject componentsObject)
             return null;
@@ -522,7 +530,7 @@ internal static class MeshJson
                 selfBuffUpkeep, refusalRangeMeters, repliesPerSenderPerMinute, intakePaused,
                 targetTier, tierFallback, fizzlesBeforeSkip, componentLowStock,
                 manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas,
-                primaryPortal, secondaryPortal),
+                primaryPortal, secondaryPortal, queuePauseSeconds),
             new MeshComponents(componentsAvailable, componentItems, componentsCatalogAvailable),
             currentHealth, maxHealth, currentStamina, maxStamina,
             tradeOpen, donationsCompleted, donationItemsReceived);
@@ -542,6 +550,8 @@ internal static class MeshJson
             || !TryInt(refused, "unknownLine", out int unknownLine)
             || !TryInt(refused, "nothingLearned", out int nothingLearned))
             return null;
+        // Additive: an older spoke that never sent this always meant nobody was ever unresolvable.
+        int unresolvable = OptionalInt(refused, "unresolvable") ?? 0;
 
         if (!statsObject.TryGetPropertyValue("lines", out JsonNode? linesNode) || linesNode is not JsonArray linesArray)
             return null;
@@ -583,7 +593,7 @@ internal static class MeshJson
 
         return new MeshStats(
             startedUtc,
-            new MeshRefusalCounts(refusedTotal, outOfRange, unknownLine, nothingLearned),
+            new MeshRefusalCounts(refusedTotal, outOfRange, unknownLine, nothingLearned, unresolvable),
             lines, hours, waitStats, playersServed, playersReturning);
     }
 

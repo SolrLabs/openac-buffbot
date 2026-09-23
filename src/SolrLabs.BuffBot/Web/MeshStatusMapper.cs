@@ -34,7 +34,8 @@ internal static class MeshStatusMapper
         var meshStats = new MeshStats(
             status.Stats.StartedUtc,
             new MeshRefusalCounts(
-                refusals.Total, refusals.OutOfRange, refusals.UnknownLine, refusals.NothingLearned),
+                refusals.Total, refusals.OutOfRange, refusals.UnknownLine, refusals.NothingLearned,
+                refusals.Unresolvable),
             lines,
             hours,
             new MeshWaitStats(status.Stats.Wait.MedianSeconds, status.Stats.Wait.LongestSeconds),
@@ -68,7 +69,8 @@ internal static class MeshStatusMapper
                 settings.SelfBuffUpkeep, settings.RefusalRangeMeters, settings.RepliesPerSenderPerMinute,
                 settings.IntakePaused, settings.TargetTier, settings.TierFallback, settings.FizzlesBeforeSkip,
                 settings.ComponentLowStock, settings.ManaBounceLowWaterFraction, settings.ManaBounceHighWaterFraction,
-                settings.SplitPeas, PortalTieObject(settings.PrimaryPortal), PortalTieObject(settings.SecondaryPortal)),
+                settings.SplitPeas, PortalTieObject(settings.PrimaryPortal), PortalTieObject(settings.SecondaryPortal),
+                settings.QueuePauseSeconds),
             new MeshComponents(report.Available, componentItems, report.CatalogAvailable),
             status.CurrentHealth, status.MaxHealth, status.CurrentStamina, status.MaxStamina,
             status.TradeOpen, status.DonationsCompleted, status.DonationItemsReceived);

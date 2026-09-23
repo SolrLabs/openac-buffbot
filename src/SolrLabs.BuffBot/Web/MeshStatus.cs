@@ -7,7 +7,7 @@ internal readonly record struct MeshSpellLineStats(string Line, int Attempts, in
 internal readonly record struct MeshHourlyBucket(DateTimeOffset HourStartUtc, int Requested, int Upkeep, int Fizzles = 0);
 
 /// <summary><see cref="Total"/> is computed rather than carried, since <see cref="Stats.RefusalCounts"/>'s own reasons already sum to it.</summary>
-internal readonly record struct MeshRefusalCounts(int Total, int OutOfRange, int UnknownLine, int NothingLearned);
+internal readonly record struct MeshRefusalCounts(int Total, int OutOfRange, int UnknownLine, int NothingLearned, int Unresolvable = 0);
 
 /// <summary>See <see cref="Stats.WaitStats"/>.</summary>
 internal readonly record struct MeshWaitStats(double? MedianSeconds, double? LongestSeconds);
@@ -69,7 +69,8 @@ internal readonly record struct MeshSettings(
     double ManaBounceHighWaterFraction = Settings.BuffBotSettings.DefaultManaBounceHighWaterFraction,
     bool SplitPeas = Settings.BuffBotSettings.DefaultSplitPeas,
     MeshPortalTie? PrimaryPortal = null,
-    MeshPortalTie? SecondaryPortal = null);
+    MeshPortalTie? SecondaryPortal = null,
+    double QueuePauseSeconds = Settings.BuffBotSettings.DefaultQueuePauseSeconds);
 
 /// <summary>Field names match <see cref="Components.ComponentUsage"/> one for one, camelCased on the way out by <see cref="MeshJson"/>.</summary>
 internal readonly record struct MeshComponentItem(uint WeenieClassId, string Name, int Stock, int UsedBy);

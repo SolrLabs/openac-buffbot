@@ -16,7 +16,8 @@ internal sealed record BuffBotSettings(
     int ComponentLowStock = BuffBotSettings.DefaultComponentLowStock,
     double ManaBounceLowWaterFraction = BuffBotSettings.DefaultManaBounceLowWaterFraction,
     double ManaBounceHighWaterFraction = BuffBotSettings.DefaultManaBounceHighWaterFraction,
-    bool SplitPeas = BuffBotSettings.DefaultSplitPeas)
+    bool SplitPeas = BuffBotSettings.DefaultSplitPeas,
+    double QueuePauseSeconds = BuffBotSettings.DefaultQueuePauseSeconds)
 {
     internal const bool DefaultSelfBuffUpkeep = true;
 
@@ -60,6 +61,11 @@ internal sealed record BuffBotSettings(
 
     internal const bool DefaultSplitPeas = true;
 
+    /// <summary>Held quietly between two queued requesters, giving room to open a trade.</summary>
+    internal const double DefaultQueuePauseSeconds = 7d;
+    internal const double MinQueuePauseSeconds = 5d;
+    internal const double MaxQueuePauseSeconds = 10d;
+
     internal static readonly BuffBotSettings Default = new(
         DefaultSelfBuffUpkeep,
         DefaultRefusalRangeMeters,
@@ -73,7 +79,8 @@ internal sealed record BuffBotSettings(
         DefaultComponentLowStock,
         DefaultManaBounceLowWaterFraction,
         DefaultManaBounceHighWaterFraction,
-        DefaultSplitPeas);
+        DefaultSplitPeas,
+        DefaultQueuePauseSeconds);
 
     /// <summary>Every field clamped to its own bound; never throws. The mana-bounce pair clamps each handle first, then widens the high handle to keep <see cref="MinManaBounceGapFraction"/> between them.</summary>
     internal BuffBotSettings Clamped()
@@ -98,7 +105,8 @@ internal sealed record BuffBotSettings(
             Math.Clamp(ComponentLowStock, MinComponentLowStock, MaxComponentLowStock),
             clampedLow,
             clampedHigh,
-            SplitPeas);
+            SplitPeas,
+            Math.Clamp(QueuePauseSeconds, MinQueuePauseSeconds, MaxQueuePauseSeconds));
     }
 
     /// <summary>Applies a partial change, each field left alone when its patch value is <see langword="null"/> — except <see cref="TargetTier"/>, whose <paramref name="hasTargetTier"/> tells an explicit "set it back to top learned" apart from "untouched". A tie patches as a whole: <paramref name="primaryPortal"/> or <paramref name="secondaryPortal"/> null leaves that tie alone, non-null replaces it outright. Clamped on the way out.</summary>
@@ -116,7 +124,8 @@ internal sealed record BuffBotSettings(
         double? manaBounceHighWaterFraction = null,
         bool? splitPeas = null,
         PortalTie? primaryPortal = null,
-        PortalTie? secondaryPortal = null) => new BuffBotSettings(
+        PortalTie? secondaryPortal = null,
+        double? queuePauseSeconds = null) => new BuffBotSettings(
         selfBuffUpkeep ?? SelfBuffUpkeep,
         refusalRangeMeters ?? RefusalRangeMeters,
         repliesPerSenderPerMinute ?? RepliesPerSenderPerMinute,
@@ -129,5 +138,6 @@ internal sealed record BuffBotSettings(
         componentLowStock ?? ComponentLowStock,
         manaBounceLowWaterFraction ?? ManaBounceLowWaterFraction,
         manaBounceHighWaterFraction ?? ManaBounceHighWaterFraction,
-        splitPeas ?? SplitPeas).Clamped();
+        splitPeas ?? SplitPeas,
+        queuePauseSeconds ?? QueuePauseSeconds).Clamped();
 }

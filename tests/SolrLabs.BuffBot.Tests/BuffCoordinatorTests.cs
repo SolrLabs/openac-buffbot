@@ -217,6 +217,119 @@ public sealed class BuffCoordinatorTests
         Assert.Equal(RequesterName, entry.Who);
     }
 
+    // -- an unresolvable requester --------------------------------------------------------------
+
+    /// <summary>A capture with something in it, just not the requester, is unlike an empty or
+    /// absent one: it means they left the game since asking.</summary>
+    [Fact]
+    public void AnUnresolvableRequesterIsToldOnceAndNeverCastOn()
+    {
+        var stats = new BotStats();
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, NoSelfSpellSets(), stats: stats);
+
+        BuffBotStatus status = coordinator.Pump(
+            0, Catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: static _ => null,
+            sendReply: (_, _, text) => replies.Add(text),
+            capturedObjects: [ShieldObject(999)]);
+
+        Assert.Empty(magic.SentSpellIds);
+        Assert.Equal([DefaultReplies.RequesterGone], replies);
+        Assert.Empty(status.Waiting);
+        Assert.Equal(1, stats.Snapshot().Session.Refusals.Unresolvable);
+    }
+
+    [Fact]
+    public void AResolvablePersonBehindAnUnresolvableRequesterIsStillServed()
+    {
+        const uint SecondRequesterId = 777;
+        const string SecondRequesterName = "Rogue";
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        queue.TryEnqueue(new BuffRequest(SecondRequesterId, SecondRequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, NoSelfSpellSets());
+
+        // Set deliberately: a refusal starts no pause, so Rogue is served on the very next tick
+        // with no time elapsed. Were the pause to fire here, a queue of absent people would crawl.
+        coordinator.QueuePauseSeconds = 8d;
+
+        double? DistanceFor(uint objectId) => objectId == RequesterId ? null : 10d;
+
+        // Tick 1: Archer is dequeued and abandoned at once, never reaching the caster.
+        coordinator.Pump(
+            0, Catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: DistanceFor, sendReply: (_, _, text) => replies.Add(text),
+            capturedObjects: [ShieldObject(999)]);
+        Assert.Empty(magic.SentSpellIds);
+
+        // Tick 2: Rogue, still waiting behind Archer, is dequeued and served.
+        coordinator.Pump(
+            0, Catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: DistanceFor, sendReply: (_, _, text) => replies.Add(text),
+            capturedObjects: [ShieldObject(999)]);
+        Assert.Equal([OtherSpellId], magic.SentSpellIds);
+    }
+
+    // -- the pause between two queued people ----------------------------------------------------
+
+    [Fact]
+    public void TheQueuePauseElapsesBeforeTheNextDequeueAndNotBeforeAnythingElse()
+    {
+        const uint SecondRequesterId = 777;
+        const string SecondRequesterName = "Rogue";
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        queue.TryEnqueue(new BuffRequest(SecondRequesterId, SecondRequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, NoSelfSpellSets());
+        coordinator.QueuePauseSeconds = 8d;
+
+        Pump(coordinator, [], enabled: true, replies); // sends Strength Other to Archer
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies); // closes Archer's run, starts the pause
+        Assert.Equal([OtherSpellId], magic.SentSpellIds);
+
+        magic.IsCasting = false; // the server's own use-done for Archer's just-confirmed cast
+
+        // Short of the eight-second pause: Rogue stays in line.
+        BuffBotStatus stillWaiting = Pump(coordinator, [], enabled: true, replies, deltaSeconds: 5);
+        Assert.Null(stillWaiting.CurrentRequesterObjectId);
+        Assert.Single(stillWaiting.Waiting);
+
+        // The remaining three seconds land: Rogue is dequeued.
+        BuffBotStatus dequeued = Pump(coordinator, [], enabled: true, replies, deltaSeconds: 3);
+        Assert.Equal(SecondRequesterId, dequeued.CurrentRequesterObjectId);
+
+        // The caster re-enters magic mode after the peace return and casts, the same as any run.
+        Pump(coordinator, [], enabled: true, replies, deltaSeconds: 0);
+        Assert.Equal([OtherSpellId, OtherSpellId], magic.SentSpellIds);
+    }
+
+    [Fact]
+    public void ADisableDuringTheQueuePauseStillDrainsTheWaitingQueueAtOnce()
+    {
+        const uint SecondRequesterId = 777;
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        queue.TryEnqueue(new BuffRequest(SecondRequesterId, "Rogue", DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue, NoSelfSpellSets());
+        coordinator.QueuePauseSeconds = 8d;
+
+        Pump(coordinator, [], enabled: true, replies); // sends Strength Other to Archer
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies); // closes Archer's run, starts the pause
+
+        // No time at all has passed against the pause, yet the still-waiting Rogue drains anyway.
+        (IReadOnlyList<BuffRequest> drained, _) = coordinator.RequestStopForDisable();
+
+        Assert.Equal([SecondRequesterId], drained.Select(r => r.RequesterObjectId));
+        Assert.False(coordinator.HasActiveRequester);
+    }
+
     [Fact]
     public void ARequestServedFromStartToFinishFeedsLinesAndPlayersServed()
     {

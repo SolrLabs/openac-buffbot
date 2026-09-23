@@ -94,6 +94,20 @@ internal sealed class BuffCoordinator
         set => _refusalRangeMeters = value;
     }
 
+    // Zero here, unlike RefusalRangeMeters above: a bare coordinator gets no pause unless a
+    // caller opts in; the settings-driven default is synced in every tick instead.
+    private double _queuePauseSeconds;
+
+    internal double QueuePauseSeconds
+    {
+        get => _queuePauseSeconds;
+        set => _queuePauseSeconds = value;
+    }
+
+    // Started by a closing run, never by a refusal: a refusal leaves nobody to trade with, and
+    // pausing after each would make a queue of absent people crawl. Counted down only while idle.
+    private double _queuePauseRemainingSeconds;
+
     internal bool TierFallbackEnabled
     {
         get => _caster.TierFallbackEnabled;
@@ -274,11 +288,16 @@ internal sealed class BuffCoordinator
                 return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
             }
 
+            // Only counted down while nobody is being served, so it never delays anything but
+            // the next dequeue below.
+            if (_queuePauseRemainingSeconds > 0d)
+                _queuePauseRemainingSeconds = Math.Max(0d, _queuePauseRemainingSeconds - deltaSeconds);
+
             if (_toppingUpBeforeNext)
             {
                 // Runs below via the shared Advance call; the queue stays untouched until it closes.
             }
-            else if (_queue.TryDequeue(out BuffRequest next))
+            else if (_queuePauseRemainingSeconds <= 0d && _queue.TryDequeue(out BuffRequest next))
             {
                 _current = next;
                 // Measured here, not at Complete, so a top-up delay afterward isn't counted as queue wait.
@@ -358,6 +377,7 @@ internal sealed class BuffCoordinator
         _queue.Complete(finished.RequesterObjectId);
         _current = null;
         _hasServedARequest = true;
+        _queuePauseRemainingSeconds = _queuePauseSeconds;
 
         IReadOnlyList<CastStep> allSteps = _stepsBeforeResume.Count == 0
             ? result.Steps
@@ -530,6 +550,12 @@ internal sealed class BuffCoordinator
     {
         // Mana is about to move, so an idle top-up gets to try fresh next time the queue empties.
         _idleTopUpAttempted = false;
+
+        if (IsRequesterGone(request.RequesterObjectId, distanceToRequester, capturedObjects))
+        {
+            Abandon(request, DefaultReplies.RequesterGone, RefusalReason.Unresolvable, sendReply);
+            return false;
+        }
 
         if (!IsRequesterInRange(request, distanceToRequester))
         {
@@ -730,6 +756,23 @@ internal sealed class BuffCoordinator
     {
         double? distance = distanceToRequester(request.RequesterObjectId);
         return distance is null || RangePolicy.IsInRange(distance.Value, _refusalRangeMeters);
+    }
+
+    /// <summary>True only once the distance is already unknown and a non-empty capture is
+    /// missing the requester entirely -- an empty capture keeps the usual benefit of the doubt.</summary>
+    private static bool IsRequesterGone(
+        uint requesterObjectId,
+        Func<uint, double?> distanceToRequester,
+        IReadOnlyList<PluginWorldObject> capturedObjects)
+    {
+        if (distanceToRequester(requesterObjectId) is not null || capturedObjects.Count == 0)
+            return false;
+
+        foreach (PluginWorldObject candidate in capturedObjects)
+            if (candidate.ObjectId == requesterObjectId)
+                return false;
+
+        return true;
     }
 
     // The one choke point for a run with no closing reply of its own, so a resumed run abandoned

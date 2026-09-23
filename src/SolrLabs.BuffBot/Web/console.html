@@ -1165,6 +1165,16 @@ footer {
         </div>
 
         <div class="field">
+          <label for="queue-pause">Queue pause</label>
+          <div class="rangerow">
+            <input type="range" id="queue-pause" min="5" max="10" step="0.5" value="7">
+            <span class="rangeval" id="queue-pause-val">7 s</span>
+          </div>
+          <span class="cmd-result" id="queue-pause-result"></span>
+          <p>How long to wait, in peace, after one person's turn ends before dequeuing the next. Clamped 5-10 seconds; gives room to open a trade between requesters.</p>
+        </div>
+
+        <div class="field">
           <label for="low-stock">Component low-stock mark</label>
           <input type="number" id="low-stock" min="0" max="10000" step="1" value="25">
           <span class="cmd-result" id="low-stock-result"></span>
@@ -1755,6 +1765,16 @@ footer {
       { repliesPerSenderPerMinute: Number(rate.value) }, rate, document.getElementById("rate-result"));
   });
 
+  var queuePause = document.getElementById("queue-pause");
+  var queuePauseVal = document.getElementById("queue-pause-val");
+  queuePause.addEventListener("input", function () {
+    queuePauseVal.textContent = Number(queuePause.value).toFixed(1) + " s";
+  });
+  queuePause.addEventListener("change", function () {
+    postSettings(
+      { queuePauseSeconds: Number(queuePause.value) }, queuePause, document.getElementById("queue-pause-result"));
+  });
+
   var lowStock = document.getElementById("low-stock");
   lowStock.addEventListener("change", function () {
     postSettings(
@@ -1807,7 +1827,7 @@ footer {
   // to already be assigned by the time this line runs, not merely hoisted.
   var BuffBotSettingsDefaults = {
     fizzlesBeforeSkip: 6, refusalRangeMeters: 67.5, repliesPerSenderPerMinute: 12, componentLowStock: 25,
-    manaBounceLowWaterFraction: 0.20, manaBounceHighWaterFraction: 0.80,
+    manaBounceLowWaterFraction: 0.20, manaBounceHighWaterFraction: 0.80, queuePauseSeconds: 7,
   };
 
   // Console vitals brief, unit 5: the mana bar's draggable low/high handles. Limits mirror the
@@ -1924,6 +1944,10 @@ footer {
     setIfNotActive(rate, function () {
       rate.value = settings.repliesPerSenderPerMinute || BuffBotSettingsDefaults.repliesPerSenderPerMinute;
       rateVal.textContent = rate.value + " / 60s";
+    });
+    setIfNotActive(queuePause, function () {
+      queuePause.value = settings.queuePauseSeconds || BuffBotSettingsDefaults.queuePauseSeconds;
+      queuePauseVal.textContent = Number(queuePause.value).toFixed(1) + " s";
     });
     setIfNotActive(lowStock, function () {
       lowStock.value = settings.componentLowStock == null
@@ -2274,7 +2298,8 @@ footer {
     el.textContent = commas(refused.total);
     el.title = commas(refused.outOfRange) + " out of range · " +
       commas(refused.unknownLine) + " unknown line · " +
-      commas(refused.nothingLearned) + " nothing learned";
+      commas(refused.nothingLearned) + " nothing learned · " +
+      commas(refused.unresolvable) + " not found";
   }
 
   /* ── headline tiles ──────────────────────────────────── */

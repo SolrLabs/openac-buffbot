@@ -15,4 +15,5 @@ internal sealed record MeshSettingsPatch(
     double? ManaBounceHighWaterFraction = null,
     bool? SplitPeas = null,
     MeshPortalTie? PrimaryPortal = null,
-    MeshPortalTie? SecondaryPortal = null);
+    MeshPortalTie? SecondaryPortal = null,
+    double? QueuePauseSeconds = null);

@@ -36,6 +36,9 @@ internal static class DefaultReplies
 
     internal const string OutOfRange = "You're too far away. Come closer and ask again.";
 
+    // Sent once, then the request is dropped, rather than left to stall the whole line.
+    internal const string RequesterGone = "I couldn't find you nearby anymore, so I moved on. Ask again if you're still around.";
+
     // Nothing is enqueued; status, help, position and cancel still work.
     internal const string IntakePaused = "I'm not taking new requests right now. Try again shortly.";
 
@@ -507,6 +510,7 @@ internal static class DefaultReplies
         QueueFull,
         QueueDrained,
         OutOfRange,
+        RequesterGone,
         IntakePaused,
         Starting,
         StartingWithSelfBuffs,

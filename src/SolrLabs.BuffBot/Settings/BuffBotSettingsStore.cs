@@ -49,6 +49,7 @@ internal sealed class BuffBotSettingsStore
         ["manaBounceLowWaterFraction"] = settings.ManaBounceLowWaterFraction,
         ["manaBounceHighWaterFraction"] = settings.ManaBounceHighWaterFraction,
         ["splitPeas"] = settings.SplitPeas,
+        ["queuePauseSeconds"] = settings.QueuePauseSeconds,
     }.ToJsonString();
 
     private static JsonObject PortalTieObject(PortalTie tie) => new()
@@ -77,7 +78,8 @@ internal sealed class BuffBotSettingsStore
             OptionalInt(root, "componentLowStock") ?? BuffBotSettings.DefaultComponentLowStock,
             OptionalDouble(root, "manaBounceLowWaterFraction") ?? BuffBotSettings.DefaultManaBounceLowWaterFraction,
             OptionalDouble(root, "manaBounceHighWaterFraction") ?? BuffBotSettings.DefaultManaBounceHighWaterFraction,
-            OptionalBool(root, "splitPeas") ?? BuffBotSettings.DefaultSplitPeas);
+            OptionalBool(root, "splitPeas") ?? BuffBotSettings.DefaultSplitPeas,
+            OptionalDouble(root, "queuePauseSeconds") ?? BuffBotSettings.DefaultQueuePauseSeconds);
     }
 
     /// <summary>A missing key, or a value of the wrong shape, both fall back to <see cref="PortalTie.Empty"/>.</summary>

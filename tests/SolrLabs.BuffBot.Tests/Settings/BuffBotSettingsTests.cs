@@ -34,6 +34,15 @@ public sealed class BuffBotSettingsTests
         Assert.Equal(expected, (BuffBotSettings.Default with { RefusalRangeMeters = stored }).Clamped().RefusalRangeMeters);
 
     [Theory]
+    [InlineData(0d, 5d)]
+    [InlineData(4.9, 5d)]
+    [InlineData(5d, 5d)]
+    [InlineData(10d, 10d)]
+    [InlineData(30d, 10d)]
+    public void ClampedBoundsQueuePauseSeconds(double stored, double expected) =>
+        Assert.Equal(expected, (BuffBotSettings.Default with { QueuePauseSeconds = stored }).Clamped().QueuePauseSeconds);
+
+    [Theory]
     [InlineData(0, 2)]
     [InlineData(1, 2)]
     [InlineData(2, 2)]

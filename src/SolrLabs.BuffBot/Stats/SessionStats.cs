@@ -10,9 +10,9 @@ internal readonly record struct SpellLineStats(string Line, int Attempts, int La
 /// before the plugin started rather than draw it as a real zero.</summary>
 internal readonly record struct HourlyBucket(DateTimeOffset HourStartUtc, int Requested, int Upkeep, int Fizzles = 0);
 
-internal readonly record struct RefusalCounts(int OutOfRange, int UnknownLine, int NothingLearned)
+internal readonly record struct RefusalCounts(int OutOfRange, int UnknownLine, int NothingLearned, int Unresolvable = 0)
 {
-    internal int Total => OutOfRange + UnknownLine + NothingLearned;
+    internal int Total => OutOfRange + UnknownLine + NothingLearned + Unresolvable;
 }
 
 /// <summary><see langword="null"/> for both until a request has actually been dequeued and
@@ -48,6 +48,7 @@ internal sealed class SessionStats
     private int _outOfRange;
     private int _unknownLine;
     private int _nothingLearned;
+    private int _unresolvable;
 
     internal SessionStats(IClock? clock = null)
     {
@@ -64,6 +65,7 @@ internal sealed class SessionStats
             case RefusalReason.OutOfRange: _outOfRange++; break;
             case RefusalReason.UnknownLine: _unknownLine++; break;
             case RefusalReason.NothingLearned: _nothingLearned++; break;
+            case RefusalReason.Unresolvable: _unresolvable++; break;
         }
     }
 
@@ -148,7 +150,7 @@ internal sealed class SessionStats
 
         return new SessionStatsSnapshot(
             StartedUtc,
-            new RefusalCounts(_outOfRange, _unknownLine, _nothingLearned),
+            new RefusalCounts(_outOfRange, _unknownLine, _nothingLearned, _unresolvable),
             lines,
             hours,
             wait,
