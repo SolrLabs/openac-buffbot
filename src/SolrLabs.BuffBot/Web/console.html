@@ -791,7 +791,7 @@ button[disabled] { opacity: 0.4; cursor: not-allowed; }
 input[type="range"] { flex: 1 1 auto; accent-color: var(--series-1); min-width: 0; }
 .rangeval { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; min-width: 7ch; text-align: right; }
 
-.field select, .field input[type="number"] {
+.field select, .field input[type="number"], .field input[type="text"] {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink);
@@ -801,10 +801,40 @@ input[type="range"] { flex: 1 1 auto; accent-color: var(--series-1); min-width: 
   padding: 5px 8px;
 }
 .field select { cursor: pointer; }
-.field select:focus-visible, .field input[type="number"]:focus-visible {
+.field select:focus-visible,
+.field input[type="number"]:focus-visible,
+.field input[type="text"]:focus-visible {
   outline: 2px solid var(--series-1);
   outline-offset: 2px;
 }
+
+/* One row per tie: name, the description it reads out verbatim, and which side it lands on.
+   The description takes the slack so a long place name stays readable while typing. */
+.tie-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.tie-row .tie-name {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0;
+}
+.tie-row input[type="text"] { width: 100%; min-width: 0; }
+/* Sits under the description, clear of the 'Primary'/'Secondary' column, so a save note never
+   reflows the row it belongs to. */
+.tie-result {
+  grid-column: 2 / -1;
+  max-width: none;
+  margin-top: 0;
+  min-height: 13px;
+}
+.tie-result.ok { color: var(--series-1); }
 
 .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
@@ -1183,31 +1213,29 @@ footer {
 
         <div class="field">
           <span class="lbl">Portals</span>
-          <p>Where a portal drops a requester, and which way they should expect to be facing once they land. Leave the description blank to turn a tie off.</p>
-        </div>
-
-        <div class="field">
-          <label for="primary-portal-description">Primary portal tie</label>
-          <input type="text" id="primary-portal-description" placeholder="e.g. Temple of Enlightenment — or leave blank">
-          <select id="primary-portal-direction" aria-label="Primary portal tie direction">
-            <option value="front">Front</option>
-            <option value="right">Right</option>
-            <option value="behind">Behind</option>
-            <option value="left">Left</option>
-          </select>
-          <span class="cmd-result" id="primary-portal-result"></span>
-        </div>
-
-        <div class="field">
-          <label for="secondary-portal-description">Secondary portal tie</label>
-          <input type="text" id="secondary-portal-description" placeholder="e.g. Temple of Enlightenment — or leave blank">
-          <select id="secondary-portal-direction" aria-label="Secondary portal tie direction">
-            <option value="front">Front</option>
-            <option value="right">Right</option>
-            <option value="behind">Behind</option>
-            <option value="left">Left</option>
-          </select>
-          <span class="cmd-result" id="secondary-portal-result"></span>
+          <div class="tie-row">
+            <label class="tie-name" for="primary-portal-description">Primary</label>
+            <input type="text" id="primary-portal-description" placeholder="e.g. Temple of Enlightenment — or leave blank">
+            <select id="primary-portal-direction" aria-label="Primary portal tie direction">
+              <option value="front">Front</option>
+              <option value="right">Right</option>
+              <option value="behind">Behind</option>
+              <option value="left">Left</option>
+            </select>
+            <span class="cmd-result tie-result" id="primary-portal-result"></span>
+          </div>
+          <div class="tie-row">
+            <label class="tie-name" for="secondary-portal-description">Secondary</label>
+            <input type="text" id="secondary-portal-description" placeholder="e.g. Temple of Enlightenment — or leave blank">
+            <select id="secondary-portal-direction" aria-label="Secondary portal tie direction">
+              <option value="front">Front</option>
+              <option value="right">Right</option>
+              <option value="behind">Behind</option>
+              <option value="left">Left</option>
+            </select>
+            <span class="cmd-result tie-result" id="secondary-portal-result"></span>
+          </div>
+          <p>Where a portal drops a requester, and which way they should expect to be facing once they land. Leave the description blank to turn a tie off. Saves as you type.</p>
         </div>
 
         <div class="field">
@@ -1702,10 +1730,10 @@ footer {
   // Posts a partial settings write for whichever bot is selected (console-controls brief) —
   // every other field is left alone, matching the mesh's own partial-patch contract. A no-op
   // with nothing selected, the same guard every other command button already uses.
-  function postSettings(patch, button, resultEl) {
+  function postSettings(patch, button, resultEl, okText) {
     var botId = botSelect.value;
     if (!botId) return;
-    runCommand(botId, { kind: "settings", settings: patch }, button, resultEl);
+    runCommand(botId, { kind: "settings", settings: patch }, button, resultEl, okText);
   }
 
   // Skips a re-render while the control is the thing the operator is currently touching, so a
@@ -1783,27 +1811,49 @@ footer {
 
   // Each tie posts as one object -- the description and the direction always travel together,
   // matching the mesh's whole-tie patch contract.
-  var primaryPortalDescription = document.getElementById("primary-portal-description");
-  var primaryPortalDirection = document.getElementById("primary-portal-direction");
-  var primaryPortalResult = document.getElementById("primary-portal-result");
-  function postPrimaryPortal() {
-    postSettings(
-      { primaryPortal: { description: primaryPortalDescription.value, direction: primaryPortalDirection.value } },
-      primaryPortalDescription, primaryPortalResult);
-  }
-  primaryPortalDescription.addEventListener("change", postPrimaryPortal);
-  primaryPortalDirection.addEventListener("change", postPrimaryPortal);
+  // A tie's description used to save on `change`, which a text box only fires on blur -- so an
+  // edit the operator never blurred was silently replaced by the next poll. It now saves as it
+  // is typed, and the poll leaves the field alone until that save is acknowledged.
+  var TIE_SAVE_DELAY_MS = 600;
 
-  var secondaryPortalDescription = document.getElementById("secondary-portal-description");
-  var secondaryPortalDirection = document.getElementById("secondary-portal-direction");
-  var secondaryPortalResult = document.getElementById("secondary-portal-result");
-  function postSecondaryPortal() {
-    postSettings(
-      { secondaryPortal: { description: secondaryPortalDescription.value, direction: secondaryPortalDirection.value } },
-      secondaryPortalDescription, secondaryPortalResult);
+  function wirePortalTie(slot) {
+    var description = document.getElementById(slot + "-portal-description");
+    var direction = document.getElementById(slot + "-portal-direction");
+    var result = document.getElementById(slot + "-portal-result");
+    var timer = null;
+    var state = { pending: false };
+
+    function save() {
+      if (timer) { clearTimeout(timer); timer = null; }
+      var patch = {};
+      patch[slot + "Portal"] = { description: description.value, direction: direction.value };
+      state.pending = false;
+      postSettings(patch, null, result, "Saved.");
+    }
+
+    description.addEventListener("input", function () {
+      state.pending = true;
+      result.classList.remove("err", "ok");
+      result.textContent = "Saving…";
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(save, TIE_SAVE_DELAY_MS);
+    });
+    // Leaving the field or pressing Enter commits immediately rather than waiting out the timer.
+    description.addEventListener("blur", function () { if (state.pending) save(); });
+    description.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") { event.preventDefault(); save(); }
+    });
+    direction.addEventListener("change", save);
+
+    return { description: description, direction: direction, state: state };
   }
-  secondaryPortalDescription.addEventListener("change", postSecondaryPortal);
-  secondaryPortalDirection.addEventListener("change", postSecondaryPortal);
+
+  var primaryTie = wirePortalTie("primary");
+  var secondaryTie = wirePortalTie("secondary");
+  var primaryPortalDescription = primaryTie.description;
+  var primaryPortalDirection = primaryTie.direction;
+  var secondaryPortalDescription = secondaryTie.description;
+  var secondaryPortalDirection = secondaryTie.direction;
 
   // Pause intake toggles off whatever the hub last reported (renderControls below keeps
   // pausedNow in sync), rather than assuming the button's own idle label.
@@ -1955,12 +2005,14 @@ footer {
         : settings.componentLowStock;
     });
     setIfNotActive(primaryPortalDescription, function () {
+      if (primaryTie.state.pending) return;
       primaryPortalDescription.value = (settings.primaryPortal && settings.primaryPortal.description) || "";
     });
     setIfNotActive(primaryPortalDirection, function () {
       primaryPortalDirection.value = (settings.primaryPortal && settings.primaryPortal.direction) || "front";
     });
     setIfNotActive(secondaryPortalDescription, function () {
+      if (secondaryTie.state.pending) return;
       secondaryPortalDescription.value = (settings.secondaryPortal && settings.secondaryPortal.description) || "";
     });
     setIfNotActive(secondaryPortalDirection, function () {
@@ -2361,10 +2413,13 @@ footer {
     return "Request failed (" + status + ").";
   }
 
-  function runCommand(botId, body, button, resultEl) {
-    button.disabled = true;
+  function runCommand(botId, body, button, resultEl, okText) {
+    // A null button is a control that must stay live while it saves -- disabling a text box
+    // mid-keystroke would swallow what the operator is still typing.
+    if (button) button.disabled = true;
     resultEl.textContent = "";
     resultEl.classList.remove("err");
+    resultEl.classList.remove("ok");
     apiFetch("/api/bots/" + encodeURIComponent(botId) + "/commands", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2372,7 +2427,8 @@ footer {
     }).then(function (res) {
       if (res.status === 401) { showAuthGate(); return null; }
       if (res.status === 202) {
-        resultEl.textContent = "Sent — applies on the bot's next tick.";
+        resultEl.textContent = okText || "Sent — applies on the bot's next tick.";
+        if (okText) resultEl.classList.add("ok");
         return null;
       }
       return res.json().catch(function () { return null; }).then(function (payload) {
@@ -2383,7 +2439,7 @@ footer {
       resultEl.textContent = "Could not reach the hub.";
       resultEl.classList.add("err");
     }).then(function () {
-      button.disabled = false;
+      if (button) button.disabled = false;
     });
   }
 

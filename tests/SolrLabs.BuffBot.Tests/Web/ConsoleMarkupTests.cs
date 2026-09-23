@@ -220,4 +220,51 @@ public sealed class ConsoleMarkupTests
 
         Assert.DoesNotContain("the build ships free only", html, StringComparison.OrdinalIgnoreCase);
     }
+
+    // -- portal ties --------------------------------------------------------------------------
+
+    /// <summary>Both ties live in one block, each a row of name, description and direction,
+    /// rather than a heading and two blocks of their own.</summary>
+    [Fact]
+    public void BothPortalTiesShareOneFieldWithARowEach()
+    {
+        string html = Html();
+
+        int portals = html.IndexOf(">Portals<", StringComparison.Ordinal);
+        int primary = html.IndexOf("id=\"primary-portal-description\"", StringComparison.Ordinal);
+        int secondary = html.IndexOf("id=\"secondary-portal-description\"", StringComparison.Ordinal);
+
+        Assert.True(portals >= 0 && primary > portals && secondary > primary);
+        Assert.Equal(2, CountOf(html, "class=\"tie-row\""));
+        Assert.Contains(">Primary</label>", html);
+        Assert.Contains(">Secondary</label>", html);
+
+        // One .field opens at the Portals label and must still be open at the second row.
+        string between = html[portals..secondary];
+        Assert.Equal(0, CountOf(between, "<div class=\"field\">"));
+    }
+
+    /// <summary>A description saves on input, not only on blur, and the poll leaves a field with
+    /// a pending edit alone.</summary>
+    [Fact]
+    public void ATieDescriptionSavesAsItIsTypedAndSurvivesAPoll()
+    {
+        string html = Html();
+
+        Assert.Contains("description.addEventListener(\"input\"", html);
+        Assert.Contains("description.addEventListener(\"blur\"", html);
+        Assert.Contains("if (primaryTie.state.pending) return;", html);
+        Assert.Contains("if (secondaryTie.state.pending) return;", html);
+    }
+
+    private static int CountOf(string haystack, string needle)
+    {
+        int count = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+        return count;
+    }
 }
