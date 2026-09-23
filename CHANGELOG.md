@@ -2,6 +2,17 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
+## 0.1.0-beta.5 — 2026-09-23
+
+### Fixed
+
+- **The game no longer stutters every ten seconds.** The bot re-reads its spell components on a
+  ten-second beat, and on a graphical client that read ran inside the frame the client was drawing
+  — so the game froze for a quarter of a second, over and over, for anyone playing in a window.
+  The longer the bot's spell list, the longer the freeze. It now does that read in a hundredth of
+  the time, and the beat passes unnoticed. Nothing about what the bot casts, or which tier it
+  picks, has changed.
+
 ## 0.1.0-beta.4 — 2026-09-21
 
 ### Added
