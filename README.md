@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--beta.5.1-3b82c4">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--beta.6-3b82c4">
   <img alt="Plugin API" src="https://img.shields.io/badge/OpenAC%20plugin%20API-v1-3b82c4">
   <img alt="Platforms" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20macOS-0d2b45">
   <img alt="Hosts" src="https://img.shields.io/badge/hosts-graphical%20%7C%20headless-0d2b45">
