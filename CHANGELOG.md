@@ -2,6 +2,30 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
+## 0.1.0-beta.6.1 — 2026-09-24
+
+### Changed
+
+- **BuffBot now needs OpenAC 0.1.17 or newer.** That release reorganised where the client keeps
+  everything into one install folder. Earlier versions are no longer supported, because the floor
+  beta.6 claimed had never actually been tested against.
+
+### Documentation
+
+- The README now states the MIT licence, and describes where BuffBot actually keeps your settings
+  under the new install layout.
+
+## 0.1.0-beta.6 — 2026-09-24
+
+### Fixed
+
+- **Your settings survive the move to OpenAC 0.1.17.** That release keeps plugin data somewhere
+  new and does not carry the old data across, so updating the client used to lose your buff sets,
+  your mutes and which characters had the bot switched on. BuffBot now brings its own over the
+  first time it starts. If you already gave up and re-made a setting by hand, yours is kept — only
+  the genuinely missing pieces are filled in, one at a time. Your old files are read and never
+  changed, moved or deleted, so nothing is at risk either way.
+
 ## 0.1.0-beta.5.1 — 2026-09-23
 
 ### Fixed

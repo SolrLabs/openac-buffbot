@@ -10,10 +10,11 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--beta.6-3b82c4">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--beta.6.1-3b82c4">
   <img alt="Plugin API" src="https://img.shields.io/badge/OpenAC%20plugin%20API-v1-3b82c4">
   <img alt="Platforms" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20macOS-0d2b45">
   <img alt="Hosts" src="https://img.shields.io/badge/hosts-graphical%20%7C%20headless-0d2b45">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-3b82c4">
 </p>
 
 <p align="center">
@@ -33,6 +34,7 @@
 - [Donations](#donations)
 - [Where things are stored](#where-things-are-stored)
 - [Beta status](#beta-status)
+- [License](#license)
 
 ## What it does
 
@@ -111,7 +113,7 @@ A bot with no tie set says so rather than leaving you waiting.
 
 ## Running a bot
 
-**You need:** OpenAC 0.1.11 or newer, and a character that knows the buffs you want to hand out, carrying Prismatic Tapers, Mana Scarabs and the scarabs for the tiers it casts.
+**You need:** OpenAC 0.1.17 or newer, and a character that knows the buffs you want to hand out, carrying Prismatic Tapers, Mana Scarabs and the scarabs for the tiers it casts.
 
 1. **Install.** Open the OpenAC launcher, find **BuffBot** in the plugins list, and press **Install**. The launcher shows you what the plugin asks permission to do (read tells, run the local web console, save its settings, open your browser).
 2. **Log in** with your buffer character. BuffBot does nothing until you turn it on for that character.
@@ -233,18 +235,36 @@ Players who want to help keep the bot stocked can send it `contribute`. The bot 
 
 ## Where things are stored
 
-Settings, the contributors list, and the console's access key are kept in a `solrlabs.buffbot` folder in your user app-data directory:
+Settings and the contributors list live with the rest of your OpenAC install, in the plugin's own folder:
 
-| OS | Folder |
+```
+<your OpenAC install folder>/plugins/solrlabs.buffbot/files/
+```
+
+Installing, updating or removing the plugin never touches that `files/` folder. Where the install folder itself sits depends on your platform, and the launcher's Settings screen shows you the exact path:
+
+| OS | Default install folder |
 |---|---|
-| Windows | `%APPDATA%\solrlabs.buffbot` |
-| macOS | `~/.config/solrlabs.buffbot` |
-| Linux | `~/.config/solrlabs.buffbot` |
+| Windows | `%LOCALAPPDATA%\OpenAC` |
+| macOS | `~/Library/Application Support/OpenAC` |
+| Linux | `$XDG_DATA_HOME/openac`, or `~/.local/share/openac` |
+
+**Upgrading from an OpenAC before 0.1.17?** That release reorganised where the client keeps everything, and it does not carry plugin data across. BuffBot brings its own over the first time it starts: anything you had is copied into the new location, anything you have already re-made is left exactly as it is, and the old files are read but never changed or deleted.
+
+The console's access key is kept separately, in a `solrlabs.buffbot` folder in your user app-data directory (`%APPDATA%\solrlabs.buffbot` on Windows, `~/.config/solrlabs.buffbot` on macOS and Linux). BuffBot falls back to that folder for everything else only if the client cannot offer it storage at all.
 
 ## Beta status
 
 Everything above works and is tested, but it has only been run on one server by a handful of characters, so expect rough edges. If you find one, please [open an issue](../../issues).
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed, and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+BuffBot is released under the [MIT License](LICENSE) — free to use, change and redistribute,
+including commercially, as long as the copyright notice and the licence text travel with it.
+It comes with no warranty.
+
+Copyright (c) 2026 SolrLabs LLC.
 
 <sub>Screenshots show sample data.</sub>
