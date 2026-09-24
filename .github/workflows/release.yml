@@ -78,7 +78,21 @@ jobs:
           # zip, and refuses an install when either is missing or differs from the zip's copy.
           assets=(artifacts/*.zip artifacts/*.zip.sha256 artifacts/plugin.json)
           [ -f artifacts/icon.png ] && assets+=(artifacts/icon.png)
+          # The release body is this version's own CHANGELOG section, so the notes say what
+          # changed rather than pointing at a file. An unmatched heading leaves it empty, which
+          # the fallback fills, because a release with no notes reads as an unfinished one.
+          version="${GITHUB_REF_NAME#v}"
+          changes=$(awk -v v="## $version " '
+            index($0, v) == 1 { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$changes" | tr -d '[:space:]')" ]; then
+            changes="See [CHANGELOG.md](CHANGELOG.md)."
+          fi
+          notes=$(printf '%s\n\n---\n\nBuilt against OpenAC `%s` @ `%s`. Install through the OpenAC launcher, or unzip into the client'"'"'s `plugins/solrlabs.buffbot/`.\n' \
+            "$changes" "$OPENAC_REF" "$openac")
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --title "BuffBot $GITHUB_REF_NAME" \
-            --notes "Built against OpenAC \`$OPENAC_REF\` @ \`$openac\`. Install through the OpenAC launcher, or unzip into the client's \`plugins/solrlabs.buffbot/\`. See CHANGELOG.md." \
+            --notes "$notes" \
             $prerelease

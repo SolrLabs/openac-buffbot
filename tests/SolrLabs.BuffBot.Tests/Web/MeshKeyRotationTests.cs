@@ -147,8 +147,11 @@ public sealed class MeshKeyRotationTests : IDisposable
         await PollUntilAsync(() => spoke.IsHub);
 
         Assert.Equal(key, spoke.CurrentKey); // takeover still never rotates
-        string opener = File.ReadAllText(linkPath);
-        Assert.Contains($"token={key}", opener); // ...but the opener page now carries what it serves
+
+        // The flag is set before Announce writes the page, so the page is its own condition.
+        await PollUntilAsync(() =>
+            File.Exists(linkPath)
+            && File.ReadAllText(linkPath).Contains($"token={key}", StringComparison.Ordinal));
     }
 
     [Fact]
