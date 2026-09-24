@@ -19,7 +19,7 @@ namespace SolrLabs.BuffBot;
 
 public sealed class BuffBotPlugin : IAcDreamPlugin
 {
-    private const string Version = "0.1.0-beta.5.1";
+    private const string Version = "0.1.0-beta.6";
 
     /// <summary>How many requests may wait behind the one being processed.</summary>
     private const int QueueCapacity = 5;
@@ -140,10 +140,28 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         _host = host;
         IPluginStorage storage = SelectStorage(
             host.Storage, new PluginFileStorage(PluginFileStorage.DefaultRoot()), host.Log.Info);
+        RunLegacyStorageMigration(storage, host.Log.Info, LogWarn);
         _enablement = new CharacterEnablement(storage);
         _settingsStore = new BuffBotSettingsStore(storage);
         _contributorLedger = new ContributorLedger(storage, LogWarn);
         host.Log.Info($"BuffBot {Version} initialised (api {PluginApi.Current})");
+    }
+
+    /// <summary>Never allowed to take plugin load down — a locator or a source that cannot tell
+    /// where the old folder is just means there is nothing to bring over this run.</summary>
+    internal static void RunLegacyStorageMigration(IPluginStorage storage, Action<string> logInfo, Action<string> logWarn)
+    {
+        try
+        {
+            ILegacyStorageSource? legacySource = LegacyStorageLocator.TryResolveRoot() is { } root
+                ? new LegacyStorageSource(root)
+                : null;
+            LegacyStorageMigration.Run(storage, legacySource, logInfo, logWarn);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            logWarn($"BuffBot legacy storage migration skipped: {error.Message}");
+        }
     }
 
     /// <summary>Host-free so the choice is testable without a fake <see
