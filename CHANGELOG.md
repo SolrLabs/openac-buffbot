@@ -2,6 +2,13 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
+## 0.1.0 — 2026-09-24
+
+First stable release. No code changes since `0.1.0-beta.6.1`; this marks the point at which
+BuffBot was judged live against a running server rather than only by its tests — a bot answering
+real requests from one character while another talked over it in public chat, across a sign-out
+and sign-in, through a trade, and with a request it had to refuse.
+
 ## 0.1.0-beta.6.1 — 2026-09-24
 
 ### Changed

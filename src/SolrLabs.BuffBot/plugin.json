@@ -1,7 +1,7 @@
 {
   "id": "solrlabs.buffbot",
   "displayName": "BuffBot",
-  "version": "0.1.0-beta.6.1",
+  "version": "0.1.0",
   "entryDll": "SolrLabs.BuffBot.dll",
   "apiVersion": 1,
   "minHostVersion": "0.1.17",

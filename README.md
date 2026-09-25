@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0--beta.6.1-3b82c4">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-3b82c4">
   <img alt="Plugin API" src="https://img.shields.io/badge/OpenAC%20plugin%20API-v1-3b82c4">
   <img alt="Platforms" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20macOS-0d2b45">
   <img alt="Hosts" src="https://img.shields.io/badge/hosts-graphical%20%7C%20headless-0d2b45">
@@ -33,7 +33,7 @@
 - [Owner commands](#owner-commands)
 - [Donations](#donations)
 - [Where things are stored](#where-things-are-stored)
-- [Beta status](#beta-status)
+- [Maturity](#maturity)
 - [License](#license)
 
 ## What it does
@@ -253,9 +253,11 @@ Installing, updating or removing the plugin never touches that `files/` folder. 
 
 The console's access key is kept separately, in a `solrlabs.buffbot` folder in your user app-data directory (`%APPDATA%\solrlabs.buffbot` on Windows, `~/.config/solrlabs.buffbot` on macOS and Linux). BuffBot falls back to that folder for everything else only if the client cannot offer it storage at all.
 
-## Beta status
+## Maturity
 
-Everything above works and is tested, but it has only been run on one server by a handful of characters, so expect rough edges. If you find one, please [open an issue](../../issues).
+This is the first stable release. Everything above is covered by tests and has been run against a live server by two characters at once — a bot taking real requests while someone else talked over it — which is the only way a buff bot can actually be judged.
+
+It has still only been exercised on one server, by a handful of characters. If you hit a rough edge, please [open an issue](../../issues).
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed, and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 

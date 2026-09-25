@@ -19,7 +19,7 @@ namespace SolrLabs.BuffBot;
 
 public sealed class BuffBotPlugin : IAcDreamPlugin
 {
-    private const string Version = "0.1.0-beta.6.1";
+    private const string Version = "0.1.0";
 
     /// <summary>How many requests may wait behind the one being processed.</summary>
     private const int QueueCapacity = 5;
