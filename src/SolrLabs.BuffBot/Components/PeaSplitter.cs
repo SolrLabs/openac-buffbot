@@ -163,9 +163,10 @@ internal sealed class PeaSplitter : IPeaSplitCoordinator
                 if (!peace.Accepted)
                     return FailTransient(active, $"peace mode request refused: {peace.Status}");
 
-                // AlreadyReady: nothing was sent, so there is nothing to wait for settling.
-                // Anything else accepted still needs the settle wait below.
-                if (peace.Status == PluginCombatCommandStatus.AlreadyReady)
+                // AlreadyReady: nothing was sent, so a host with no word of its own (still
+                // Unknown this session) has nothing left to wait for either.
+                if (peace.Status == PluginCombatCommandStatus.AlreadyReady
+                    && _combat.Snapshot.ServerMode == PluginCombatMode.Unknown)
                 {
                     _phase = Phase.WaitingIdle;
                     _phaseElapsedSeconds = 0;
@@ -174,29 +175,64 @@ internal sealed class PeaSplitter : IPeaSplitCoordinator
 
             if (_phase == Phase.EnteringPeace)
             {
-                _phaseElapsedSeconds += deltaSeconds;
-                if (_phaseElapsedSeconds < _stanceSettleSeconds)
-                    return PeaSplitPollResult.Pending;
+                if (_combat.Snapshot.ServerMode == PluginCombatMode.Peace)
+                {
+                    _phase = Phase.WaitingIdle;
+                    _phaseElapsedSeconds = 0;
+                }
+                else
+                {
+                    _phaseElapsedSeconds += deltaSeconds;
+                    if (_phaseElapsedSeconds < _stanceSettleSeconds)
+                        return PeaSplitPollResult.Pending;
 
-                // Snapshot.Mode flips the instant the request is accepted, well before the server settles.
-                if (_combat.Snapshot.Mode != PluginCombatMode.Peace)
-                    return FailTransient(active, "peace mode did not settle before the split");
+                    if (_combat.Snapshot.ServerMode == PluginCombatMode.Unknown)
+                    {
+                        // Snapshot.Mode flips the instant the request is accepted, well before
+                        // the server settles; a host with no word of its own is judged on that alone.
+                        if (_combat.Snapshot.Mode != PluginCombatMode.Peace)
+                            return FailTransient(active, "peace mode did not settle before the split");
+                    }
+                    else
+                    {
+                        // The server may simply never announce a stance it already considers
+                        // unchanged; that is not evidence the split's peace request failed.
+                        _warn(
+                            $"[split] server peace confirmation lagged past {_stanceSettleSeconds:0.0}s; "
+                            + $"proceeding on client mode ({active.Reason}).");
+                    }
 
-                _phase = Phase.WaitingIdle;
-                _phaseElapsedSeconds = 0;
+                    _phase = Phase.WaitingIdle;
+                    _phaseElapsedSeconds = 0;
+                }
             }
         }
 
         if (_phase == Phase.StanceRetrySettle)
         {
             // No EnterMode call here: the client's tracked mode already reads Peace, so re-sending
-            // it would be a no-op. Only time can tell whether the server has actually caught up.
-            _phaseElapsedSeconds += deltaSeconds;
-            if (_phaseElapsedSeconds < _stanceSettleSeconds)
-                return PeaSplitPollResult.Pending;
+            // it would be a no-op.
+            if (_combat.Snapshot.ServerMode == PluginCombatMode.Peace)
+            {
+                _phase = Phase.WaitingIdle;
+                _phaseElapsedSeconds = 0;
+            }
+            else
+            {
+                _phaseElapsedSeconds += deltaSeconds;
+                if (_phaseElapsedSeconds < _stanceSettleSeconds)
+                    return PeaSplitPollResult.Pending;
 
-            _phase = Phase.WaitingIdle;
-            _phaseElapsedSeconds = 0;
+                if (_combat.Snapshot.ServerMode != PluginCombatMode.Unknown)
+                {
+                    _warn(
+                        $"[split] server peace confirmation lagged past {_stanceSettleSeconds:0.0}s "
+                        + $"after the peace-mode retry; proceeding ({active.Reason}).");
+                }
+
+                _phase = Phase.WaitingIdle;
+                _phaseElapsedSeconds = 0;
+            }
         }
 
         if (_phase == Phase.WaitingIdle)

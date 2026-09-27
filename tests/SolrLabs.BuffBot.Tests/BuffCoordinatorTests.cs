@@ -50,6 +50,36 @@ public sealed class BuffCoordinatorTests
         Assert.Equal("All set: cast 2 buffs.", closing);
     }
 
+    /// <summary>A stance the server hasn't confirmed yet blocks the whole run, not only the
+    /// state machine's own unit coverage of the same check.</summary>
+    [Fact]
+    public void ARunWaitsForTheServersOwnStanceBeforeSendingAnything()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+
+        var magic = new FakeMagic();
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic, ServerMode = PluginCombatMode.Peace };
+        var enchantments = new FakeEnchantments();
+        var spellSets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultSpellSets.Self] = DefaultSpellSets.Table[DefaultSpellSets.Self],
+            [DefaultSpellSets.Buff] = ["Strength Other"],
+        };
+        var coordinator = new BuffCoordinator(queue, magic, enchantments, items, equipment, combat, spellSets);
+        List<string> replies = [];
+
+        Pump(coordinator, [], enabled: true, replies);
+        Assert.Empty(magic.SentSpellIds); // the server hasn't agreed on the stance yet
+
+        combat.ServerMode = PluginCombatMode.Magic;
+        Pump(coordinator, [], enabled: true, replies);
+        Assert.Equal([SelfSpellId], magic.SentSpellIds);
+    }
+
     // -- donations pause the run ----------------------------------------------------------------
 
     [Fact]
@@ -2801,8 +2831,14 @@ public sealed class BuffCoordinatorTests
     {
         internal PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
 
+        /// <summary>Defaults to Unknown, same as a host that has never reported it this session.</summary>
+        internal PluginCombatMode ServerMode { get; set; } = PluginCombatMode.Unknown;
+
         public PluginCombatSnapshot Snapshot => new(
-            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false);
+            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false)
+        {
+            ServerMode = ServerMode,
+        };
 
         public IReadOnlyList<PluginCombatTarget> CaptureHostileTargets(float maximumDistance) =>
             Array.Empty<PluginCombatTarget>();

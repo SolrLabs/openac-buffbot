@@ -79,6 +79,10 @@ public sealed class PeaSplitterTests
     private sealed class FakeCombat : ICombatAutomation
     {
         internal PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
+
+        /// <summary>Defaults to Unknown, same as a host that has never reported it this session.</summary>
+        internal PluginCombatMode ServerMode { get; set; } = PluginCombatMode.Unknown;
+
         internal PluginCombatCommandResult NextEnterModeResult { get; set; } =
             new(PluginCombatCommandStatus.ModeChangeSent);
 
@@ -89,7 +93,10 @@ public sealed class PeaSplitterTests
         internal int EnterModeCallCount { get; private set; }
 
         public PluginCombatSnapshot Snapshot =>
-            new(0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false);
+            new(0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false)
+            {
+                ServerMode = ServerMode,
+            };
 
         public IReadOnlyList<PluginCombatTarget> CaptureHostileTargets(float maximumDistance) =>
             Array.Empty<PluginCombatTarget>();
@@ -246,6 +253,47 @@ public sealed class PeaSplitterTests
         Assert.True(splitter.TryStart(LeadScarabWeenie, "retry"));
     }
 
+    /// <summary>A host that reports the server's own stance settles the moment it agrees,
+    /// without spending the rest of the fixed wait.</summary>
+    [Fact]
+    public void EnteringPeaceSettlesAsSoonAsServerModeAgrees()
+    {
+        (PeaSplitter splitter, FakeItems items, FakeCombat combat, _, List<string> warnings) =
+            Build(stanceSettleSeconds: 5);
+        combat.Mode = PluginCombatMode.Magic;
+        combat.ServerMode = PluginCombatMode.Melee; // known, but not Peace yet
+        items.Add(Item(1, ToolId, "Splitting Tool", 1));
+        items.Add(Item(2, LeadPeaWeenie, "Lead Pea", 5));
+
+        splitter.TryStart(LeadScarabWeenie, "test");
+        Assert.Equal(PeaSplitPollResult.Pending, splitter.Poll(1)); // still waiting on the server's word
+        Assert.Equal(0, items.ApplyCallCount);
+
+        combat.ServerMode = PluginCombatMode.Peace; // the server catches up well inside the bound
+        Assert.Equal(PeaSplitPollResult.Pending, splitter.Poll(0.1));
+        Assert.Equal(1, items.ApplyCallCount);
+        Assert.Empty(warnings);
+    }
+
+    /// <summary>A stance the server never confirms — ACE sends nothing once it already agrees —
+    /// still proceeds past the timeout, with a warning rather than a failed split.</summary>
+    [Fact]
+    public void EnteringPeaceProceedsPastTheTimeoutWithAWarningWhenServerModeNeverAgrees()
+    {
+        (PeaSplitter splitter, FakeItems items, FakeCombat combat, _, List<string> warnings) =
+            Build(stanceSettleSeconds: 1);
+        combat.Mode = PluginCombatMode.Magic;
+        combat.ServerMode = PluginCombatMode.Melee; // known, and never catches up
+        items.Add(Item(1, ToolId, "Splitting Tool", 1));
+        items.Add(Item(2, LeadPeaWeenie, "Lead Pea", 5));
+
+        splitter.TryStart(LeadScarabWeenie, "test");
+        Assert.Equal(PeaSplitPollResult.Pending, splitter.Poll(1)); // settle bound reached, proceeds anyway
+        Assert.Equal(1, items.ApplyCallCount);
+        Assert.False(splitter.SessionDisabled);
+        Assert.Contains(warnings, w => w.Contains("[split]") && w.Contains("lagged"));
+    }
+
     [Fact]
     public void PeaceIsRequestedExactlyOnceEvenAcrossManySmallFramePolls()
     {
@@ -380,6 +428,35 @@ public sealed class PeaSplitterTests
         Assert.False(splitter.SessionDisabled);
         Assert.Equal(1, combat.EnterModeCallCount);
         Assert.Contains(traces, t => t.Contains("retrying peace"));
+    }
+
+    /// <summary>The retry wait after a stance refusal is the same server-word check as the
+    /// initial peace request, not a second fixed timer.</summary>
+    [Fact]
+    public void TheStanceRetryWaitAlsoSettlesOnServerModeRatherThanOnlyTime()
+    {
+        (PeaSplitter splitter, FakeItems items, FakeCombat combat, _, List<string> warnings) =
+            Build(stanceSettleSeconds: 5);
+        items.Add(Item(1, ToolId, "Splitting Tool", 1));
+        items.Add(Item(2, LeadPeaWeenie, "Lead Pea", 5));
+        combat.ServerMode = PluginCombatMode.Peace; // already agrees from the very first request
+
+        splitter.TryStart(LeadScarabWeenie, "test");
+        Assert.Equal(PeaSplitPollResult.Pending, splitter.Poll(1)); // applies straight away
+        Assert.Equal(1, items.ApplyCallCount);
+
+        combat.ServerMode = PluginCombatMode.Melee; // the retry itself desyncs the server's word
+        items.LastCompletion = new PluginItemUseCompletion(
+            Revision: 1, SourceObjectId: items.LastApplyToolObjectId,
+            TargetObjectId: items.LastApplyTargetObjectId, WeenieError: 0x043Au);
+
+        Assert.Equal(PeaSplitPollResult.Pending, splitter.Poll(0.1)); // starts the retry wait
+        Assert.Equal(1, items.ApplyCallCount);
+
+        combat.ServerMode = PluginCombatMode.Peace; // catches up well inside the 5 s bound
+        Assert.Equal(PeaSplitPollResult.Pending, splitter.Poll(0.1));
+        Assert.Equal(2, items.ApplyCallCount);
+        Assert.Empty(warnings);
     }
 
     [Fact]

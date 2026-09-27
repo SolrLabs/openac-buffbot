@@ -572,8 +572,14 @@ public sealed class PortalRunTests
     {
         internal PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
 
+        /// <summary>Defaults to Unknown, same as a host that has never reported it this session.</summary>
+        internal PluginCombatMode ServerMode { get; set; } = PluginCombatMode.Unknown;
+
         public PluginCombatSnapshot Snapshot => new(
-            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false);
+            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false)
+        {
+            ServerMode = ServerMode,
+        };
 
         public IReadOnlyList<PluginCombatTarget> CaptureHostileTargets(float maximumDistance) =>
             Array.Empty<PluginCombatTarget>();

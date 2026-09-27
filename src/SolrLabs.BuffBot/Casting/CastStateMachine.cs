@@ -1178,7 +1178,7 @@ internal sealed class CastStateMachine
 
     private bool TickEnteringMagicMode(ResolvedSpell current, double deltaSeconds, out CastRunResult? result)
     {
-        if (_combat.Snapshot.Mode == PluginCombatMode.Magic)
+        if (MagicStanceAgreed())
         {
             _trace?.Invoke("magic mode confirmed");
             _prepared = true;
@@ -1190,6 +1190,8 @@ internal sealed class CastStateMachine
 
         if (!_modeRequestSent)
         {
+            // Mode may already read Magic here (the server's word is the one still missing), in
+            // which case this returns AlreadyReady and sends nothing -- but it still starts the timer.
             PluginCombatCommandResult entered = _combat.EnterMode(PluginCombatMode.Magic);
             _trace?.Invoke($"mode Magic -> {entered.Status}");
             if (!entered.Accepted)
@@ -1212,6 +1214,20 @@ internal sealed class CastStateMachine
         _prepElapsedSeconds += deltaSeconds;
         if (_prepElapsedSeconds >= _prepTimeoutSeconds)
         {
+            if (_combat.Snapshot.Mode == PluginCombatMode.Magic)
+            {
+                // The server may simply never announce a stance it already considers unchanged;
+                // that is not evidence the mode change failed.
+                _warn?.Invoke(
+                    $"server stance confirmation for magic mode lagged past {_prepTimeoutSeconds:0.0}s "
+                    + $"for {current.Line}; proceeding on the client's own mode.");
+                _prepared = true;
+                _preparedForCasting = true;
+                _phase = Phase.NotStarted;
+                result = null;
+                return true;
+            }
+
             result = Finish(CastRunResult.Failed(
                 _steps,
                 new CastFailure(
@@ -1221,6 +1237,17 @@ internal sealed class CastStateMachine
 
         result = null;
         return false;
+    }
+
+    // ServerMode can lag Mode, or never move once the server already considers the stance
+    // unchanged. A host that hasn't reported it at all this session (still Unknown) is judged on Mode alone.
+    private bool MagicStanceAgreed()
+    {
+        if (_combat.Snapshot.Mode != PluginCombatMode.Magic)
+            return false;
+
+        PluginCombatMode serverMode = _combat.Snapshot.ServerMode;
+        return serverMode == PluginCombatMode.Unknown || serverMode == PluginCombatMode.Magic;
     }
 
     private void TickIdle()

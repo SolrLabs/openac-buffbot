@@ -234,6 +234,53 @@ public sealed class CastStateMachineTests
     }
 
     [Fact]
+    public void ServerModeLaggingBehindMagicBlocksTheCastUntilItAgrees()
+    {
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId, wielded: true));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic, ServerMode = PluginCombatMode.Peace };
+        var magic = new FakeMagic { Gate = PluginCastGate.Ready };
+        var machine = new CastStateMachine(magic, new FakeEnchantments(), items, equipment, combat, prepTimeoutSeconds: 5);
+        machine.Begin([Resolved(10, tier: 1, spellId: 42)], Target, TargetName);
+
+        RunUntil(machine, [], out _, maxTicks: 4, untilSent: magic); // 2 s of the 5 s bound
+        Assert.Equal(0, magic.GateCalls); // never reached the pre-send gate
+
+        combat.ServerMode = PluginCombatMode.Magic;
+        CastRunResult? result = RunUntil(machine, [], out _, maxTicks: 4, untilSent: magic);
+
+        Assert.Null(result);
+        Assert.Equal(PluginCastRequestResult.Sent, magic.LastRequestResult);
+    }
+
+    [Fact]
+    public void ServerModeThatNeverAgreesProceedsPastTheTimeoutWithAWarningInsteadOfFailing()
+    {
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId, wielded: true));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat
+        {
+            Mode = PluginCombatMode.Magic,
+            ServerMode = PluginCombatMode.Peace,
+            NextEnterModeResult = new PluginCombatCommandResult(PluginCombatCommandStatus.AlreadyReady),
+        };
+        var magic = new FakeMagic { Gate = PluginCastGate.Ready };
+        List<string> warnings = [];
+        var machine = new CastStateMachine(
+            magic, new FakeEnchantments(), items, equipment, combat, prepTimeoutSeconds: 1, warn: warnings.Add);
+        machine.Begin([Resolved(10, tier: 1, spellId: 42)], Target, TargetName);
+
+        CastRunResult? result = RunUntil(machine, [], out _, maxTicks: 10, untilSent: magic);
+
+        Assert.Null(result); // not a failed run
+        Assert.Equal(PluginCastRequestResult.Sent, magic.LastRequestResult);
+        Assert.Equal(1, combat.EnterModeCallCount); // AlreadyReady still started the timer, asked only once
+        Assert.Contains(warnings, w => w.Contains("lagged"));
+    }
+
+    [Fact]
     public void DroppedCastIsSkippedAsAPerSpellFailureWhenNoConfirmationArrivesWithinTheWindow()
     {
         // DidNotLand is per-spell: a single dropped cast at the end of a one-spell plan still
@@ -2496,13 +2543,20 @@ public sealed class CastStateMachineTests
     private sealed class FakeCombat : ICombatAutomation
     {
         internal PluginCombatMode Mode { get; set; } = PluginCombatMode.Peace;
+
+        /// <summary>Defaults to Unknown, same as a host that has never reported it this session.</summary>
+        internal PluginCombatMode ServerMode { get; set; } = PluginCombatMode.Unknown;
+
         internal PluginCombatCommandResult NextEnterModeResult { get; set; } =
             new(PluginCombatCommandStatus.ModeChangeSent);
         internal PluginCombatMode? LastRequestedMode { get; set; }
         internal int EnterModeCallCount { get; private set; }
 
         public PluginCombatSnapshot Snapshot => new(
-            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false);
+            0u, Mode, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false)
+        {
+            ServerMode = ServerMode,
+        };
 
         public IReadOnlyList<PluginCombatTarget> CaptureHostileTargets(float maximumDistance) =>
             Array.Empty<PluginCombatTarget>();

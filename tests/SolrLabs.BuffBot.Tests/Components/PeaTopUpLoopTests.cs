@@ -230,8 +230,14 @@ public sealed class PeaTopUpLoopTests
 
     private sealed class FakeCombat : ICombatAutomation
     {
+        /// <summary>Defaults to Unknown, same as a host that has never reported it this session.</summary>
+        internal PluginCombatMode ServerMode { get; set; } = PluginCombatMode.Unknown;
+
         public PluginCombatSnapshot Snapshot =>
-            new(0u, PluginCombatMode.Peace, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false);
+            new(0u, PluginCombatMode.Peace, PluginAttackHeight.Medium, 0f, 0f, false, false, false, false)
+            {
+                ServerMode = ServerMode,
+            };
 
         public IReadOnlyList<PluginCombatTarget> CaptureHostileTargets(float maximumDistance) =>
             Array.Empty<PluginCombatTarget>();
