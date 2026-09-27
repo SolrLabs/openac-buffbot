@@ -99,6 +99,9 @@ internal static class DefaultSpellSets
                 SpellLayerElement.Cast("Lightning Protection Other"),
                 SpellLayerElement.Cast("Piercing Protection Other"),
                 SpellLayerElement.Cast("Aura of Defender Other"), // creature-targeted; reaches the requester.
+                // Every chain carries the xp-share pair; nested rather than duplicated so the two
+                // literal lines still live only in XpChain.
+                SpellLayerElement.Layer(XpChain),
             ]),
             [Melee] = new SpellLayer(Melee,
             [
@@ -267,6 +270,9 @@ internal static class DefaultSpellSets
                 "Cold Protection Other",
                 "Lightning Protection Other",
                 "Piercing Protection Other",
+                // Every chain carries the xp-share pair.
+                "Leadership Mastery Other",
+                "Fealty Other",
             ],
             [Self] =
             [

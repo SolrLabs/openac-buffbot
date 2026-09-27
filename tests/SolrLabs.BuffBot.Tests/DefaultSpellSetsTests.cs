@@ -256,6 +256,8 @@ public sealed class DefaultSpellSetsTests
                 "Lightning Protection Other",
                 "Piercing Protection Other",
                 "Aura of Defender Other",
+                "Leadership Mastery Other",
+                "Fealty Other",
             ],
             lines);
     }
@@ -428,9 +430,11 @@ public sealed class DefaultSpellSetsTests
     [Fact]
     public void TheLegacyBuffAndSelfAndManaUpkeepEntriesAreUnchanged()
     {
-        // The existing contract other components already consume (Responder, BuffCoordinator,
-        // CastStateMachine) must not move under them. Untouched by the profile-fidelity pass.
-        Assert.Equal(14, DefaultSpellSets.Table[DefaultSpellSets.Buff].Count);
+        // The mana-upkeep pair is untouched by the profile-fidelity pass; buff now also carries
+        // the xp-share pair.
+        Assert.Equal(16, DefaultSpellSets.Table[DefaultSpellSets.Buff].Count);
+        Assert.Contains("Leadership Mastery Other", DefaultSpellSets.Table[DefaultSpellSets.Buff]);
+        Assert.Contains("Fealty Other", DefaultSpellSets.Table[DefaultSpellSets.Buff]);
         Assert.Equal(
             ["Stamina to Mana Self", "Revitalize Self"],
             DefaultSpellSets.Table[DefaultSpellSets.ManaUpkeep]);
