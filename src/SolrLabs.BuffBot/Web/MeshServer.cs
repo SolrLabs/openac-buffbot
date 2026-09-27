@@ -11,36 +11,27 @@ internal sealed class MeshServer
 {
     private readonly TcpListener _listener;
     private readonly MeshRegistry _registry;
-    private readonly Func<string> _currentKey;
     private readonly int _port;
     private readonly Func<string> _hubBotId;
     private readonly Action<MeshCommand> _localSink;
     private readonly byte[] _pageBytes;
     private readonly Action<string> _logInfo;
-    private readonly Action<DateTimeOffset> _reportNodeStarted;
-    private readonly Func<bool> _isDeciding;
-    private readonly string _linkFilePath;
     private readonly Func<uint, IReadOnlyList<Contributor>>? _readContributors;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
 
     internal MeshServer(
-        TcpListener listener, MeshRegistry registry, Func<string> currentKey, int port, Func<string> hubBotId,
+        TcpListener listener, MeshRegistry registry, int port, Func<string> hubBotId,
         Action<MeshCommand> localSink, byte[] pageBytes, Action<string> logInfo,
-        Action<DateTimeOffset> reportNodeStarted, Func<bool> isDeciding, string linkFilePath,
         Func<uint, IReadOnlyList<Contributor>>? readContributors = null)
     {
         _listener = listener;
         _registry = registry;
-        _currentKey = currentKey;
         _port = port;
         _hubBotId = hubBotId;
         _localSink = localSink;
         _pageBytes = pageBytes;
         _logInfo = logInfo;
-        _reportNodeStarted = reportNodeStarted;
-        _isDeciding = isDeciding;
-        _linkFilePath = linkFilePath;
         _readContributors = readContributors;
     }
 
@@ -127,7 +118,8 @@ internal sealed class MeshServer
         }
     }
 
-    /// <summary>Every request, any path: Host and Origin checked first, regardless of what follows.</summary>
+    /// <summary>Every request, any path: Host and Origin checked first, regardless of what
+    /// follows — loopback plus these two headers is the whole boundary.</summary>
     internal void Respond(Stream stream, HttpRequest request)
     {
         if (!MeshAccessControl.HostAllowed(request.Header("Host"), _port)
@@ -151,31 +143,13 @@ internal sealed class MeshServer
             return;
         }
 
-        // No token required — a user needs this to find the key before they have it.
-        if (request.Path == "/api/hub" && IsMethod(request, "GET"))
-        {
-            RespondHub(stream);
-            return;
-        }
-
         if (request.Path.StartsWith("/api/", StringComparison.Ordinal))
         {
-            if (!MeshAccessControl.TokenValid(request.Header("Authorization"), _currentKey()))
-            {
-                HttpResponseWriter.WriteEmpty(stream, 401, "Unauthorized");
-                return;
-            }
             RespondApi(stream, request);
             return;
         }
 
         HttpResponseWriter.WriteEmpty(stream, 404, "Not Found");
-    }
-
-    private void RespondHub(Stream stream)
-    {
-        string fingerprint = MeshKeyStore.Fingerprint(_currentKey());
-        HttpResponseWriter.WriteJson(stream, 200, "OK", MeshJson.HubResponse(fingerprint, _isDeciding(), _linkFilePath));
     }
 
     private void RespondApi(Stream stream, HttpRequest request)
@@ -254,21 +228,7 @@ internal sealed class MeshServer
 
     private void RespondHeartbeat(Stream stream, HttpRequest request)
     {
-        string key = _currentKey();
-        if (!MeshAccessControl.TokenValid(request.Header("Authorization"), key))
-        {
-            HttpResponseWriter.WriteEmpty(stream, 401, "Unauthorized");
-            return;
-        }
-
-        string? nonce = request.Header("X-BuffBot-Nonce");
-        if (string.IsNullOrEmpty(nonce))
-        {
-            HttpResponseWriter.WriteEmpty(stream, 400, "Bad Request");
-            return;
-        }
-
-        (string BotId, string Name, string World, MeshStatus Status, DateTimeOffset NodeStartedUtc)? heartbeat =
+        (string BotId, string Name, string World, MeshStatus Status)? heartbeat =
             MeshJson.TryParseHeartbeat(Encoding.UTF8.GetString(request.Body));
         if (heartbeat is not { } beat)
         {
@@ -276,15 +236,9 @@ internal sealed class MeshServer
             return;
         }
 
-        // A heartbeat presenting the current key is proof this node was already on the mesh before this hub bound; the caller decides what that means for its own grace window.
-        _reportNodeStarted(beat.NodeStartedUtc);
-
         _registry.Report(beat.BotId, beat.Name, beat.World, isHub: false, beat.Status);
         IReadOnlyList<MeshCommand> commands = _registry.DrainCommands(beat.BotId);
-        string proof = MeshProof.Compute(key, nonce);
-
-        HttpResponseWriter.WriteJson(
-            stream, 200, "OK", MeshJson.HeartbeatResponse(commands), new[] { ("X-BuffBot-Proof", proof) });
+        HttpResponseWriter.WriteJson(stream, 200, "OK", MeshJson.HeartbeatResponse(commands));
     }
 
     private static bool IsMethod(HttpRequest request, string method) =>

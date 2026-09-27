@@ -17,7 +17,6 @@ public sealed class MeshNodeStopTests : IDisposable
         int port = ReserveFreeLoopbackPort();
         var hub = new MeshNode(new MeshNodeOptions(
             Port: port,
-            KeyPath: Path.Combine(_tempDirectory, "mesh.key"),
             LinkFilePath: Path.Combine(_tempDirectory, "opener.html"),
             Clock: SystemClock.Instance,
             PageBytes: "<html></html>"u8.ToArray(),

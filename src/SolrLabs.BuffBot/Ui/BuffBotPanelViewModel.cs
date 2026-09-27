@@ -115,23 +115,11 @@ internal sealed class BuffBotPanelViewModel
     {
         MeshConsoleState.Hub => "Web console: hub",
         MeshConsoleState.Spoke => "Web console: spoke",
-        MeshConsoleState.Starting => "Web console: deciding a key…",
         _ => "Web console: unavailable",
     };
 
     /// <summary>Empty whenever <see cref="_console"/> carries no link, never a stale or invalid one.</summary>
     public string ConsoleLink => _console.Link ?? string.Empty;
-
-    /// <summary>The link without its query string, since a panel can end up in a screenshot or stream and the token is a mesh key; the Open button still uses <see cref="ConsoleLink"/>.</summary>
-    public string ConsoleAddress
-    {
-        get
-        {
-            string link = ConsoleLink;
-            int query = link.IndexOf('?');
-            return query < 0 ? link : link[..query];
-        }
-    }
 
     /// <summary>Gates the Open web console button so a click with nothing to open is refused by the widget itself.</summary>
     public bool HasConsoleLink => !string.IsNullOrEmpty(_console.Link);

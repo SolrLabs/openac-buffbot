@@ -517,7 +517,6 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         _consolePageBytes ??= ConsolePage.Load();
         var node = new MeshNode(new MeshNodeOptions(
             Port: MeshPort,
-            KeyPath: MeshKeyStore.DefaultPath(),
             LinkFilePath: MeshOpenerPage.DefaultPath(),
             Clock: SystemClock.Instance,
             PageBytes: _consolePageBytes,

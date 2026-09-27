@@ -108,7 +108,6 @@ public sealed class MeshSupervisorTests
     /// <summary>Never started, never touches a socket.</summary>
     private static MeshNode NewThrowawayNode() => new(new MeshNodeOptions(
         Port: 0,
-        KeyPath: Path.Combine(Path.GetTempPath(), "buffbot-mesh-supervisor-tests-" + Guid.NewGuid(), "mesh.key"),
         LinkFilePath: Path.Combine(Path.GetTempPath(), "buffbot-mesh-supervisor-tests-" + Guid.NewGuid(), "opener.html"),
         Clock: SystemClock.Instance,
         PageBytes: Array.Empty<byte>(),

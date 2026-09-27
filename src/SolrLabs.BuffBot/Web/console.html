@@ -255,8 +255,6 @@ body {
   margin-bottom: 14px;
 }
 #app.stale { opacity: 0.55; pointer-events: none; transition: opacity 160ms ease; }
-.auth-gate { max-width: 620px; margin: 72px auto 0; }
-.auth-gate p:last-child { margin: 10px 0 0; color: var(--ink-dim); }
 
 /* ── demo strip ──────────────────────────────────────── */
 
@@ -902,11 +900,6 @@ footer {
 
   <div id="offline-banner" class="banner-offline" hidden role="status">Hub unreachable — retrying…</div>
 
-  <div id="auth-gate" class="panel auth-gate" hidden>
-    <p class="eyebrow">Access needed</p>
-    <p id="auth-gate-msg">This page needs the link from the client log — it carries the access token.</p>
-  </div>
-
   <div id="app">
 
     <header class="topbar">
@@ -1263,7 +1256,6 @@ footer {
 (function () {
   "use strict";
 
-  var TOKEN_KEY = "buffbot.console.token";
   var BOT_KEY = "buffbot.console.botId";
   var TAB_KEY = "buffbot.console.tab";
 
@@ -2010,29 +2002,10 @@ footer {
     pauseButton.classList.toggle("primary", pausedNow);
   }
 
-  /* ── token ───────────────────────────────────────────── */
-
-  var apiToken = null;
-  (function initToken() {
-    var params = new URLSearchParams(window.location.search);
-    var fromUrl = params.get("token");
-    if (fromUrl) {
-      apiToken = fromUrl;
-      try { sessionStorage.setItem(TOKEN_KEY, fromUrl); } catch (e) { /* ignore */ }
-      params.delete("token");
-      var qs = params.toString();
-      var newUrl = window.location.pathname + (qs ? "?" + qs : "") + window.location.hash;
-      try { window.history.replaceState(null, "", newUrl); } catch (e) { /* ignore */ }
-    } else {
-      try { apiToken = sessionStorage.getItem(TOKEN_KEY); } catch (e) { apiToken = null; }
-    }
-  })();
-
   function apiFetch(path, opts) {
     opts = opts || {};
     var headers = {};
     for (var k in (opts.headers || {})) headers[k] = opts.headers[k];
-    if (apiToken) headers["Authorization"] = "Bearer " + apiToken;
     var merged = { method: opts.method, headers: headers, body: opts.body };
     return fetch(path, merged);
   }
@@ -2041,8 +2014,6 @@ footer {
 
   var appEl = document.getElementById("app");
   var offlineBanner = document.getElementById("offline-banner");
-  var authGate = document.getElementById("auth-gate");
-  var authGateMsg = document.getElementById("auth-gate-msg");
 
   function showOfflineBanner() {
     offlineBanner.hidden = false;
@@ -2051,105 +2022,6 @@ footer {
   function hideOfflineBanner() {
     offlineBanner.hidden = true;
     appEl.classList.remove("stale");
-  }
-
-  var FALLBACK_GATE_TEXT = "This page needs the link from the client log — it carries the access token.";
-
-  function setGateMessage(nodes) {
-    authGateMsg.textContent = "";
-    nodes.forEach(function (n) { authGateMsg.appendChild(n); });
-  }
-  function showPlainGateMessage(text) {
-    setGateMessage([document.createTextNode(text)]);
-  }
-
-  function showAuthGate() {
-    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
-    appEl.hidden = true;
-    authGate.hidden = false;
-    if (!hubPollActive) {
-      showPlainGateMessage(FALLBACK_GATE_TEXT);
-      offlineBanner.hidden = true;
-      startHubPoll();
-    }
-  }
-
-  /* ── hub polling (key-rotation recovery) ──────────────── */
-
-  var CRYPTO_OK = !!(window.crypto && window.crypto.subtle && window.crypto.subtle.digest && window.TextEncoder);
-  var fingerprintCache = { token: null, promise: null };
-
-  function tokenFingerprint(token) {
-    if (fingerprintCache.token === token) return fingerprintCache.promise;
-    var promise = window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)).then(function (buf) {
-      var bytes = new Uint8Array(buf);
-      var hex = "";
-      for (var i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, "0");
-      return hex.slice(0, 16);
-    });
-    fingerprintCache = { token: token, promise: promise };
-    return promise;
-  }
-
-  var hubPollTimer = null;
-  var hubPollActive = false;
-
-  function scheduleHubPoll(delay) {
-    hubPollTimer = setTimeout(pollHub, delay);
-  }
-  function stopHubPoll() {
-    if (hubPollTimer) { clearTimeout(hubPollTimer); hubPollTimer = null; }
-    hubPollActive = false;
-  }
-  function startHubPoll() {
-    if (hubPollActive) return;
-    hubPollActive = true;
-    pollHub();
-  }
-
-  function recoverFromAuthGate() {
-    stopHubPoll();
-    hideOfflineBanner();
-    authGate.hidden = true;
-    appEl.hidden = false;
-    poll();
-  }
-
-  function handleHubData(data) {
-    hideOfflineBanner();
-
-    if (!apiToken || !CRYPTO_OK) {
-      showPlainGateMessage(
-        "This page needs its access link. In-game, click BuffBot's Open web console button — "
-        + "it always has the current one. Running headless, copy it from the bot's log.");
-      return;
-    }
-    if (data.deciding) {
-      showPlainGateMessage("The console is starting up — checking whether its access link changed…");
-      return;
-    }
-    tokenFingerprint(apiToken).then(function (fp) {
-      if (fp === data.keyFingerprint) {
-        recoverFromAuthGate();
-      } else {
-        showPlainGateMessage(
-          "The console restarted with a new access link. In-game, click BuffBot's Open web "
-          + "console button to get it. Running headless, copy the new link from the bot's log.");
-      }
-    });
-  }
-
-  function pollHub() {
-    fetch("/api/hub").then(function (res) {
-      if (!res.ok) throw new Error("http " + res.status);
-      return res.json();
-    }).then(function (data) {
-      handleHubData(data);
-      scheduleHubPoll(3000);
-    }).catch(function () {
-      showOfflineBanner();
-      scheduleHubPoll(3000);
-    });
   }
 
   /* ── bot selection ───────────────────────────────────── */
@@ -2402,7 +2274,6 @@ footer {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     }).then(function (res) {
-      if (res.status === 401) { showAuthGate(); return null; }
       if (res.status === 202) {
         resultEl.textContent = okText || "Sent — applies on the bot's next tick.";
         if (okText) resultEl.classList.add("ok");
@@ -2668,7 +2539,6 @@ footer {
 
   function poll() {
     apiFetch("/api/bots").then(function (res) {
-      if (res.status === 401) { showAuthGate(); return null; }
       if (!res.ok) throw new Error("http " + res.status);
       return res.json();
     }).then(function (data) {

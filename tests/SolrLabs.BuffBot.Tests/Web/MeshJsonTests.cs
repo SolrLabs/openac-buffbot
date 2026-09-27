@@ -409,17 +409,15 @@ public sealed class MeshJsonTests
     [Fact]
     public void HeartbeatRoundTripsThroughItsOwnWriterAndReader()
     {
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus);
 
-        (string BotId, string Name, string World, MeshStatus Status, DateTimeOffset NodeStartedUtc)? parsed =
+        (string BotId, string Name, string World, MeshStatus Status)? parsed =
             MeshJson.TryParseHeartbeat(json);
 
         Assert.NotNull(parsed);
         Assert.Equal("local/1", parsed!.Value.BotId);
         Assert.Equal("Alice", parsed.Value.Name);
         Assert.Equal("local", parsed.Value.World);
-        Assert.Equal(nodeStartedUtc, parsed.Value.NodeStartedUtc);
         Assert.Equal(SampleStatus.Enabled, parsed.Value.Status.Enabled);
         Assert.Equal(SampleStatus.Activity, parsed.Value.Status.Activity);
         Assert.Equal(SampleStatus.CurrentRequesterName, parsed.Value.Status.CurrentRequesterName);
@@ -441,8 +439,7 @@ public sealed class MeshJsonTests
     [Fact]
     public void TradeAndDonationFieldsDefaultWhenAbsent()
     {
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus);
         JsonObject root = JsonNode.Parse(json)!.AsObject();
         JsonObject status = (JsonObject)root["status"]!;
         status.Remove("tradeOpen");
@@ -466,8 +463,7 @@ public sealed class MeshJsonTests
         {
             Components = new MeshComponents(true, Array.Empty<MeshComponentItem>(), CatalogAvailable: false),
         };
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", withCatalogGap, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", withCatalogGap);
 
         JsonObject root = JsonNode.Parse(json)!.AsObject();
         JsonObject components = (JsonObject)((JsonObject)root["status"]!)["components"]!;
@@ -483,8 +479,7 @@ public sealed class MeshJsonTests
     [Fact]
     public void ComponentsCatalogDefaultsToAvailableWhenTheFieldIsAbsent()
     {
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus);
         JsonObject root = JsonNode.Parse(json)!.AsObject();
         ((JsonObject)((JsonObject)root["status"]!)["components"]!).Remove("catalog");
 
@@ -499,8 +494,7 @@ public sealed class MeshJsonTests
     [Fact]
     public void VitalsDefaultToNullWhenTheFieldsAreAbsent()
     {
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus);
         JsonObject root = JsonNode.Parse(json)!.AsObject();
         JsonObject status = (JsonObject)root["status"]!;
         status.Remove("currentHealth");
@@ -520,8 +514,7 @@ public sealed class MeshJsonTests
     [Fact]
     public void VitalsRoundTripThroughTheHeartbeatWhenPresent()
     {
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus);
 
         var parsed = MeshJson.TryParseHeartbeat(json);
 
@@ -537,8 +530,7 @@ public sealed class MeshJsonTests
     [Fact]
     public void ManaBounceFractionsDefaultToTwentyEightyWhenAbsentFromSettings()
     {
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", SampleStatus);
         JsonObject root = JsonNode.Parse(json)!.AsObject();
         JsonObject settings = (JsonObject)((JsonObject)root["status"]!)["settings"]!;
         settings.Remove("manaBounceLowWaterFraction");
@@ -552,8 +544,8 @@ public sealed class MeshJsonTests
     }
 
     [Theory]
-    [InlineData("{\"schema\":2,\"botId\":\"x\",\"name\":\"x\",\"world\":\"x\",\"nodeStartedUtc\":\"2026-01-01T00:00:00.0000000+00:00\",\"status\":{}}")]
-    [InlineData("{\"schema\":1,\"botId\":\"x\",\"name\":\"x\",\"world\":\"x\",\"status\":{}}")] // missing nodeStartedUtc
+    [InlineData("{\"schema\":2,\"botId\":\"x\",\"name\":\"x\",\"world\":\"x\",\"status\":{}}")]
+    [InlineData("{\"schema\":1,\"botId\":\"x\",\"name\":\"x\",\"world\":\"x\"}")] // missing status
     [InlineData("not json")]
     public void RejectsAMalformedHeartbeatBody(string json) => Assert.Null(MeshJson.TryParseHeartbeat(json));
 
@@ -625,7 +617,7 @@ public sealed class MeshJsonTests
     public void StatsAndRecentRoundTripThroughAHeartbeat()
     {
         string json = MeshJson.Heartbeat(
-            "local/1", "Alice", "local", StatusWithStatsAndRecent, DateTimeOffset.UnixEpoch);
+            "local/1", "Alice", "local", StatusWithStatsAndRecent);
 
         var parsed = MeshJson.TryParseHeartbeat(json);
 
@@ -646,8 +638,7 @@ public sealed class MeshJsonTests
     [Fact]
     public void AnHourlyBucketsFizzlesDefaultToZeroWhenAbsent()
     {
-        var nodeStartedUtc = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", StatusWithStatsAndRecent, nodeStartedUtc);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", StatusWithStatsAndRecent);
         JsonObject root = JsonNode.Parse(json)!.AsObject();
         JsonObject hour = (JsonObject)((JsonObject)((JsonObject)root["status"]!)["stats"]!)["hours"]![0]!;
         hour.Remove("fizzles");
@@ -678,7 +669,7 @@ public sealed class MeshJsonTests
             Recent = recent,
         };
 
-        string json = MeshJson.Heartbeat("local/1", "Alice", "local", status, DateTimeOffset.UnixEpoch);
+        string json = MeshJson.Heartbeat("local/1", "Alice", "local", status);
 
         Assert.True(
             System.Text.Encoding.UTF8.GetByteCount(json) < 64 * 1024,

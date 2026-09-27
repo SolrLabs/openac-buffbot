@@ -18,6 +18,6 @@ public sealed class ConsolePageStartupOrderTests
         Assert.True(
             assignmentIndex < firstReadIndex,
             "BuffBotSettingsDefaults is read before it is assigned -- the hoisted `undefined` "
-            + "throws and kills the whole script before initToken/poll ever run");
+            + "throws and kills the whole script before poll ever runs");
     }
 }

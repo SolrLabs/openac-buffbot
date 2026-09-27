@@ -131,11 +131,10 @@ public sealed class BuffBotPanelViewModelTests
     }
 
     [Fact]
-    public void ConsoleStateLabelNamesEachOfTheFourStates()
+    public void ConsoleStateLabelNamesEachState()
     {
         AssertConsoleStateLabel(MeshConsoleState.Hub, "Web console: hub");
         AssertConsoleStateLabel(MeshConsoleState.Spoke, "Web console: spoke");
-        AssertConsoleStateLabel(MeshConsoleState.Starting, "Web console: deciding a key…");
         AssertConsoleStateLabel(MeshConsoleState.Unavailable, "Web console: unavailable");
     }
 
@@ -151,19 +150,15 @@ public sealed class BuffBotPanelViewModelTests
     public void ConsoleLinkAndHasConsoleLinkReflectAHubsSettledLink()
     {
         BuffBotPanelViewModel panel = NewPanel();
-        panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/?token=abc"));
+        panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/"));
 
         Assert.True(panel.HasConsoleLink);
-        Assert.Equal("http://127.0.0.1:8347/?token=abc", panel.ConsoleLink);
-        Assert.Equal("http://127.0.0.1:8347/", panel.ConsoleAddress);
+        Assert.Equal("http://127.0.0.1:8347/", panel.ConsoleLink);
     }
 
     [Fact]
-    public void ConsoleLinkIsEmptyWheneverThereIsNoLinkToOffer()
-    {
-        AssertNoConsoleLink(MeshConsoleState.Starting);
+    public void ConsoleLinkIsEmptyWheneverThereIsNoLinkToOffer() =>
         AssertNoConsoleLink(MeshConsoleState.Unavailable);
-    }
 
     private static void AssertNoConsoleLink(MeshConsoleState state)
     {
@@ -179,19 +174,16 @@ public sealed class BuffBotPanelViewModelTests
     {
         var launcher = new FakeBrowserLauncher();
         var panel = new BuffBotPanelViewModel(launcher: launcher);
-        panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/?token=abc"));
+        panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/"));
 
         panel.OpenConsole();
 
-        Assert.Equal(["http://127.0.0.1:8347/?token=abc"], launcher.Opened);
+        Assert.Equal(["http://127.0.0.1:8347/"], launcher.Opened);
     }
 
     [Fact]
-    public void OpenConsoleNeverCallsTheLauncherWithoutALink()
-    {
-        AssertOpenConsoleDoesNotLaunch(MeshConsoleState.Starting);
+    public void OpenConsoleNeverCallsTheLauncherWithoutALink() =>
         AssertOpenConsoleDoesNotLaunch(MeshConsoleState.Unavailable);
-    }
 
     private static void AssertOpenConsoleDoesNotLaunch(MeshConsoleState state)
     {
@@ -210,7 +202,7 @@ public sealed class BuffBotPanelViewModelTests
         var launcher = new FakeBrowserLauncher { ThrowOnOpen = new InvalidOperationException("no default browser") };
         var warnings = new List<string>();
         var panel = new BuffBotPanelViewModel(logWarn: warnings.Add, launcher: launcher);
-        panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/?token=abc"));
+        panel.UpdateConsole(new MeshConsoleLink(MeshConsoleState.Hub, "http://127.0.0.1:8347/"));
 
         Exception? exception = Record.Exception(() => panel.OpenConsole());
 

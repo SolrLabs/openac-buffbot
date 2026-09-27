@@ -9,18 +9,18 @@ public sealed class ConsoleLinkAnnouncerTests
     {
         var announcer = new ConsoleLinkAnnouncer();
 
-        string? line = announcer.Observe("http://127.0.0.1:8347/?token=abc", hasUi: false);
+        string? line = announcer.Observe("http://127.0.0.1:8347/", hasUi: false);
 
-        Assert.Equal("BuffBot web console: http://127.0.0.1:8347/?token=abc", line);
+        Assert.Equal("BuffBot web console: http://127.0.0.1:8347/", line);
     }
 
     [Fact]
     public void TheSameLinkAgainDoesNotPostTwice()
     {
         var announcer = new ConsoleLinkAnnouncer();
-        announcer.Observe("http://127.0.0.1:8347/?token=abc", hasUi: false);
+        announcer.Observe("http://127.0.0.1:8347/", hasUi: false);
 
-        string? line = announcer.Observe("http://127.0.0.1:8347/?token=abc", hasUi: false);
+        string? line = announcer.Observe("http://127.0.0.1:8347/", hasUi: false);
 
         Assert.Null(line);
     }
@@ -29,11 +29,11 @@ public sealed class ConsoleLinkAnnouncerTests
     public void AChangedLinkPostsAgain()
     {
         var announcer = new ConsoleLinkAnnouncer();
-        announcer.Observe("http://127.0.0.1:8347/?token=abc", hasUi: false);
+        announcer.Observe("http://127.0.0.1:8347/", hasUi: false);
 
-        string? line = announcer.Observe("http://127.0.0.1:8347/?token=xyz", hasUi: false);
+        string? line = announcer.Observe("http://127.0.0.1:8348/", hasUi: false);
 
-        Assert.Equal("BuffBot web console: http://127.0.0.1:8347/?token=xyz", line);
+        Assert.Equal("BuffBot web console: http://127.0.0.1:8348/", line);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class ConsoleLinkAnnouncerTests
     {
         var announcer = new ConsoleLinkAnnouncer();
 
-        string? line = announcer.Observe("http://127.0.0.1:8347/?token=abc", hasUi: true);
+        string? line = announcer.Observe("http://127.0.0.1:8347/", hasUi: true);
 
         Assert.Null(line);
     }

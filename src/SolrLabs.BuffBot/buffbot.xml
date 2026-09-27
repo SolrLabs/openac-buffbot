@@ -42,8 +42,8 @@
   <label x="8" y="226" w="384" text="{CountersLabel}" color="#FFC7B98F" />
 
   <label x="8" y="260" w="384" text="{ConsoleStateLabel}" color="#FFC7B98F" />
-  <label x="8" y="280" w="384" text="{ConsoleAddress}"     color="#FFE8DEC3" />
+  <label x="8" y="280" w="384" text="{ConsoleLink}"        color="#FFE8DEC3" />
   <button x="8" y="302" w="150" h="24" text="Open web console" onclick="{OpenConsole}"
           enabled="{HasConsoleLink}"
-          tooltip="Opens the mesh console in your browser. Read-only until the mesh decides a link." />
+          tooltip="Opens the mesh console in your browser." />
 </panel>

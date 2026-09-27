@@ -4,10 +4,10 @@ using SolrLabs.BuffBot.Web;
 
 namespace SolrLabs.BuffBot.Settings;
 
-/// <summary>Plugin-owned fallback for <see cref="IPluginStorage"/>, reached for only when the host's own storage reports itself unavailable. Rooted one level below <see cref="MeshKeyStore.BaseDirectory"/>, in <c>storage/</c>, so the two never collide. Every write goes through <see cref="AtomicFile.Write"/>. Keys are relative paths, e.g. <c>settings/1342177284</c>; a rooted key or one that climbs out via <c>..</c> is refused.</summary>
+/// <summary>Plugin-owned fallback for <see cref="IPluginStorage"/>, reached for only when the host's own storage reports itself unavailable. Rooted one level below <see cref="BuffBotAppData.BaseDirectory"/>, in <c>storage/</c>, so the two never collide. Every write goes through <see cref="AtomicFile.Write"/>. Keys are relative paths, e.g. <c>settings/1342177284</c>; a rooted key or one that climbs out via <c>..</c> is refused.</summary>
 internal sealed class PluginFileStorage : IPluginStorage
 {
-    internal static string DefaultRoot() => Path.Combine(MeshKeyStore.BaseDirectory(), "storage");
+    internal static string DefaultRoot() => Path.Combine(BuffBotAppData.BaseDirectory(), "storage");
 
     private readonly string _root;
 

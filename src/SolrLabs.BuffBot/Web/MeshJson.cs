@@ -287,23 +287,13 @@ internal static class MeshJson
         return new JsonObject { ["schema"] = 1, ["commands"] = array }.ToJsonString();
     }
 
-    internal static string Heartbeat(string botId, string name, string world, MeshStatus status, DateTimeOffset nodeStartedUtc) => new JsonObject
+    internal static string Heartbeat(string botId, string name, string world, MeshStatus status) => new JsonObject
     {
         ["schema"] = 1,
         ["botId"] = botId,
         ["name"] = name,
         ["world"] = world,
-        ["nodeStartedUtc"] = nodeStartedUtc.ToString("O", CultureInfo.InvariantCulture),
         ["status"] = Status(status),
-    }.ToJsonString();
-
-    /// <summary>No token required, so it is deliberately thin: just enough for the console page to show which key is live and whether the hub is still deciding.</summary>
-    internal static string HubResponse(string keyFingerprint, bool deciding, string linkFile) => new JsonObject
-    {
-        ["schema"] = 1,
-        ["keyFingerprint"] = keyFingerprint,
-        ["deciding"] = deciding,
-        ["linkFile"] = linkFile,
     }.ToJsonString();
 
     /// <summary><see langword="null"/> for any malformed shape — bad JSON, an unknown <c>kind</c>,
@@ -316,21 +306,20 @@ internal static class MeshJson
 
     /// <summary>Parses a <c>POST /mesh/heartbeat</c> body. <see langword="null"/> for anything
     /// malformed, including a <c>schema</c> other than 1.</summary>
-    internal static (string BotId, string Name, string World, MeshStatus Status, DateTimeOffset NodeStartedUtc)? TryParseHeartbeat(string json)
+    internal static (string BotId, string Name, string World, MeshStatus Status)? TryParseHeartbeat(string json)
     {
         JsonObject? root = TryParseObject(json);
         if (root is null || !TryInt(root, "schema", out int schema) || schema != 1)
             return null;
         if (!TryString(root, "botId", out string botId)
             || !TryString(root, "name", out string name)
-            || !TryString(root, "world", out string world)
-            || !TryDateTimeOffset(root, "nodeStartedUtc", out DateTimeOffset nodeStartedUtc))
+            || !TryString(root, "world", out string world))
             return null;
         if (!root.TryGetPropertyValue("status", out JsonNode? statusNode) || statusNode is not JsonObject statusObject)
             return null;
 
         MeshStatus? status = TryParseStatus(statusObject);
-        return status is null ? null : (botId, name, world, status, nodeStartedUtc);
+        return status is null ? null : (botId, name, world, status);
     }
 
     /// <summary>The spoke side of the round trip <see cref="TryParseCommand"/> answers on the hub side.</summary>

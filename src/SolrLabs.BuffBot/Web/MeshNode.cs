@@ -10,31 +10,21 @@ namespace SolrLabs.BuffBot.Web;
 /// <summary>A sealed record so <see cref="MeshNode.Publish"/> can swap it in with one reference assignment, rather than a hub and a spoke ever reading a half-updated identity/status pair.</summary>
 internal sealed record MeshSelf(string BotId, string Name, string World, MeshStatus Status);
 
-/// <summary>One node on the BuffBot web console mesh: elects itself hub or spoke by trying to bind the fixed loopback port, and from then on exposes exactly two things to <c>BuffBotPlugin</c> — <see cref="Publish"/> for the tick's status, and <see cref="TryDequeueCommand"/> for whatever the console asked for. Everything else — the HTTP server, the heartbeat loop, the takeover, the key's lifecycle — lives entirely inside this class and never calls <see cref="AcDream.Plugin.Abstractions.IPluginHost"/>.</summary>
+/// <summary>One node on the BuffBot web console mesh: elects itself hub or spoke by trying to bind the fixed loopback port, and from then on exposes exactly two things to <c>BuffBotPlugin</c> — <see cref="Publish"/> for the tick's status, and <see cref="TryDequeueCommand"/> for whatever the console asked for. Everything else — the HTTP server, the heartbeat loop, the takeover — lives entirely inside this class and never calls <see cref="AcDream.Plugin.Abstractions.IPluginHost"/>.</summary>
 internal sealed class MeshNode : IDisposable
 {
-    private static readonly TimeSpan DefaultGrace = TimeSpan.FromSeconds(8);
-    private static readonly TimeSpan DefaultTolerance = TimeSpan.FromSeconds(2);
-
     private readonly MeshNodeOptions _options;
     private readonly HttpClient _httpClient;
     private readonly ConcurrentQueue<MeshCommand> _inbound = new();
     private readonly object _roleGate = new();
 
     private volatile bool _isHub;
-    private volatile bool _deciding;
-    private volatile string _key = string.Empty;
     private volatile MeshSelf? _self;
     private TcpListener? _listener;
     private MeshServer? _server;
     private MeshRegistry? _registry;
     private CancellationTokenSource? _spokeCts;
     private Task? _spokeTask;
-    private CancellationTokenSource? _graceCts;
-    private Task? _graceTask;
-    private DateTimeOffset _startedUtc;
-    private DateTimeOffset _boundAtUtc;
-    private int _decided;
     private bool _stopped;
 
     internal MeshNode(MeshNodeOptions options)
@@ -45,19 +35,12 @@ internal sealed class MeshNode : IDisposable
 
     internal bool IsHub => _isHub;
 
-    /// <summary>Whether this hub is still inside its startup grace window — <see langword="false"/> on a spoke, on a takeover hub, and once a startup hub has decided either way.</summary>
-    internal bool IsDeciding => _deciding;
-
-    /// <summary>For a spoke this can change under it (self-heal), and for a startup hub it can change once, at the moment it decides to rotate.</summary>
-    internal string CurrentKey => _key;
-
     internal void Start()
     {
         lock (_roleGate)
         {
-            _startedUtc = _options.Clock.UtcNow;
             if (TryBindListener(out TcpListener listener))
-                BecomeHubAtStartupLocked(listener);
+                BecomeHubLocked(listener, takeover: false);
             else
                 BecomeSpokeLocked();
         }
@@ -74,21 +57,11 @@ internal sealed class MeshNode : IDisposable
 
     internal bool TryDequeueCommand(out MeshCommand command) => _inbound.TryDequeue(out command!);
 
-    /// <summary>Never returns a link while <see cref="IsDeciding"/>, since the key might still rotate, nor for a spoke whose key copy is not yet <see cref="MeshKeyStore.IsValidKey"/>.</summary>
-    internal MeshConsoleLink DescribeConsole()
-    {
-        if (IsHub)
-            return IsDeciding
-                ? new MeshConsoleLink(MeshConsoleState.Starting, null)
-                : new MeshConsoleLink(MeshConsoleState.Hub, BuildLink(CurrentKey));
+    /// <summary>A link is offered the instant this node knows its role — hub or spoke.</summary>
+    internal MeshConsoleLink DescribeConsole() =>
+        new(IsHub ? MeshConsoleState.Hub : MeshConsoleState.Spoke, BuildLink());
 
-        string key = CurrentKey;
-        return new MeshConsoleLink(
-            MeshConsoleState.Spoke,
-            MeshKeyStore.IsValidKey(key) ? BuildLink(key) : null);
-    }
-
-    private string BuildLink(string key) => $"http://127.0.0.1:{_options.Port}/?token={key}";
+    private string BuildLink() => $"http://127.0.0.1:{_options.Port}/";
 
     /// <summary>Stops the listener synchronously before anything else, so the port is free the instant this returns. The rest is a bounded, best-effort join: the calling thread never blocks more than a fraction of a second here.</summary>
     internal void Stop()
@@ -99,7 +72,6 @@ internal sealed class MeshNode : IDisposable
                 return;
             _stopped = true;
             _spokeCts?.Cancel();
-            _graceCts?.Cancel();
             _server?.Stop();
             try
             {
@@ -113,13 +85,6 @@ internal sealed class MeshNode : IDisposable
         try
         {
             _spokeTask?.Wait(TimeSpan.FromMilliseconds(90));
-        }
-        catch (AggregateException)
-        {
-        }
-        try
-        {
-            _graceTask?.Wait(TimeSpan.FromMilliseconds(90));
         }
         catch (AggregateException)
         {
@@ -147,69 +112,7 @@ internal sealed class MeshNode : IDisposable
         }
     }
 
-    /// <summary>The only path allowed to rotate the key: reads whatever is on disk, serves with it immediately either way, and only enters a grace window if that read found something valid to serve. A fresh install skips the window entirely.</summary>
-    private void BecomeHubAtStartupLocked(TcpListener listener)
-    {
-        _boundAtUtc = _options.Clock.UtcNow;
-        bool hadValidKey = MeshKeyStore.TryRead(_options.KeyPath, out string existingKey);
-        _key = hadValidKey ? existingKey : GenerateAndPersistNewKey();
-
-        StartServerLocked(listener);
-        _isHub = true;
-
-        if (!hadValidKey)
-        {
-            Announce();
-            return;
-        }
-
-        _decided = 0;
-        _deciding = true;
-        _graceCts = new CancellationTokenSource();
-        _graceTask = Task.Run(() => GraceTimerAsync(_options.Grace ?? DefaultGrace, _graceCts.Token));
-    }
-
-    /// <summary>Never rotates and never waits a grace window — a takeover keeps whatever key this node already held as a spoke, restoring the file from it if the file itself is gone or broken. If the in-memory key never became valid, this re-reads the file once more, and only manufactures a fresh key if that read is still invalid.</summary>
-    private void BecomeHubOnTakeoverLocked(TcpListener listener)
-    {
-        _boundAtUtc = _options.Clock.UtcNow;
-        bool rotated = false;
-        if (!MeshKeyStore.IsValidKey(_key))
-        {
-            if (MeshKeyStore.TryRead(_options.KeyPath, out string fileKey))
-                _key = fileKey;
-            else
-            {
-                _key = MeshKeyStore.GenerateHexKey();
-                TryPersistKey(_key);
-                rotated = true;
-            }
-        }
-        else if (!MeshKeyStore.TryRead(_options.KeyPath, out _))
-            TryPersistKey(_key);
-
-        StartServerLocked(listener);
-        _isHub = true;
-        _deciding = false;
-        _options.LogInfo("BuffBot took over the web console hub");
-        if (rotated || !OpenerPageCarriesCurrentKey())
-            Announce();
-    }
-
-    /// <summary>Missing, unreadable, or simply stale all answer <see langword="false"/> alike — the opener page does not self-heal on a 401 the way a spoke does, so every one of these needs the rewrite <see cref="BecomeHubOnTakeoverLocked"/> gives it.</summary>
-    private bool OpenerPageCarriesCurrentKey()
-    {
-        try
-        {
-            return File.ReadAllText(_options.LinkFilePath).Contains($"token={_key}", StringComparison.Ordinal);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    private void StartServerLocked(TcpListener listener)
+    private void BecomeHubLocked(TcpListener listener, bool takeover)
     {
         _listener = listener;
         _registry = new MeshRegistry(_options.Clock, _options.StaleAfter, _options.RemoveAfter);
@@ -217,93 +120,29 @@ internal sealed class MeshNode : IDisposable
             _registry.Report(self.BotId, self.Name, self.World, isHub: true, self.Status);
 
         _server = new MeshServer(
-            listener, _registry, currentKey: () => _key, _options.Port,
+            listener, _registry, _options.Port,
             hubBotId: () => _self?.BotId ?? string.Empty,
             localSink: _inbound.Enqueue,
             pageBytes: _options.PageBytes,
             logInfo: _options.LogInfo,
-            reportNodeStarted: OnHeartbeatNodeStarted,
-            isDeciding: () => _deciding,
-            linkFilePath: _options.LinkFilePath,
             readContributors: _options.ReadContributors);
         _server.Start();
-    }
+        _isHub = true;
 
-    /// <summary>Only matters while this hub is still deciding: a node whose <c>Start()</c> ran more than <see cref="MeshNodeOptions.Tolerance"/> before this hub bound is a survivor of whatever mesh was here before, and ends the window early with the key kept.</summary>
-    private void OnHeartbeatNodeStarted(DateTimeOffset nodeStartedUtc)
-    {
-        if (!_deciding)
-            return;
-
-        TimeSpan tolerance = _options.Tolerance ?? DefaultTolerance;
-        if (_boundAtUtc - nodeStartedUtc > tolerance)
-            DecideKeep();
-    }
-
-    private async Task GraceTimerAsync(TimeSpan grace, CancellationToken token)
-    {
-        try
-        {
-            await Task.Delay(grace, token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        DecideRotate();
-    }
-
-    private void DecideKeep()
-    {
-        if (Interlocked.Exchange(ref _decided, 1) != 0)
-            return;
-        _deciding = false;
-        _graceCts?.Cancel();
+        if (takeover)
+            _options.LogInfo("BuffBot took over the web console hub");
         Announce();
     }
 
-    /// <summary>A failed rotation write never wedges the hub in "deciding": if persisting the fresh key throws, this logs it once and keeps serving with whatever key was already valid.</summary>
-    private void DecideRotate()
-    {
-        if (Interlocked.Exchange(ref _decided, 1) != 0)
-            return;
-        try
-        {
-            _key = GenerateAndPersistNewKey();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            _options.LogInfo($"BuffBot web console: key rotation failed, keeping the existing key ({ex.Message})");
-        }
-        _deciding = false;
-        Announce();
-    }
-
-    /// <summary>A failed write must never stop this node serving with the valid key it holds in memory.</summary>
-    private void TryPersistKey(string key)
-    {
-        try
-        {
-            MeshKeyStore.WriteAtomic(_options.KeyPath, key);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        {
-            _options.LogInfo($"BuffBot web console: could not write the mesh key ({error.Message}); serving with the key in memory.");
-        }
-    }
-
-    private string GenerateAndPersistNewKey()
-    {
-        string key = MeshKeyStore.GenerateHexKey();
-        MeshKeyStore.WriteAtomic(_options.KeyPath, key);
-        return key;
-    }
-
-    /// <summary>Written exactly once, at the moment the key is settled, so a user never opens a link the hub is about to invalidate. The link is always logged first; a failed opener-page write is caught and logged on its own, never losing the announcement line.</summary>
+    /// <summary>Written once whenever this node binds as hub, and the opener page is rewritten
+    /// only when it is stale — the link never changes for a given port.</summary>
     private void Announce()
     {
-        string url = BuildLink(_key);
+        string url = BuildLink();
         _options.LogInfo($"BuffBot web console: {url}");
+        if (OpenerPageIsCurrent(url))
+            return;
+
         try
         {
             MeshOpenerPage.Write(_options.LinkFilePath, url);
@@ -314,11 +153,23 @@ internal sealed class MeshNode : IDisposable
         }
     }
 
+    private bool OpenerPageIsCurrent(string url)
+    {
+        try
+        {
+            string existing = File.ReadAllText(_options.LinkFilePath);
+            return existing.Contains(url, StringComparison.Ordinal)
+                && !existing.Contains("token=", StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private void BecomeSpokeLocked()
     {
         _isHub = false;
-        _deciding = false;
-        _key = MeshKeyStore.TryRead(_options.KeyPath, out string key) ? key : string.Empty;
         _options.LogInfo($"BuffBot joined the web console on 127.0.0.1:{_options.Port} as a spoke");
         _spokeCts = new CancellationTokenSource();
         _spokeTask = Task.Run(() => SpokeLoopAsync(_spokeCts.Token));
@@ -340,6 +191,8 @@ internal sealed class MeshNode : IDisposable
             }
             catch (Exception)
             {
+                // The connection itself failed -- the hub is gone. Anything else (a wrong-shaped
+                // 200, a non-2xx status) is handled inside SendHeartbeatAsync without throwing.
                 if (!await TryJitterThenBecomeHubAsync(token).ConfigureAwait(false))
                     continue;
                 return;
@@ -369,7 +222,7 @@ internal sealed class MeshNode : IDisposable
                 return false;
             try
             {
-                BecomeHubOnTakeoverLocked(listener);
+                BecomeHubLocked(listener, takeover: true);
             }
             catch (Exception error)
             {
@@ -392,52 +245,26 @@ internal sealed class MeshNode : IDisposable
         if (self is null)
             return;
 
-        string key = _key;
-        string nonce = MeshProof.GenerateNonce();
         using var request = new HttpRequestMessage(
             HttpMethod.Post, $"http://127.0.0.1:{_options.Port}/mesh/heartbeat")
         {
             Content = new StringContent(
-                MeshJson.Heartbeat(self.BotId, self.Name, self.World, self.Status, _startedUtc),
+                MeshJson.Heartbeat(self.BotId, self.Name, self.World, self.Status),
                 Encoding.UTF8, "application/json"),
         };
-        request.Headers.Add("Authorization", $"Bearer {key}");
-        request.Headers.Add("X-BuffBot-Nonce", nonce);
 
         using HttpResponseMessage response = await _httpClient.SendAsync(request, token).ConfigureAwait(false);
 
-        // A stale key never counts as the hub being gone: re-read the file and try again next cycle.
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            SelfHealKey();
+        // Any response at all means something is answering; only a failed connection (caught by
+        // the loop above) counts as the hub being gone.
+        if (response.StatusCode != HttpStatusCode.OK)
             return;
-        }
-        response.EnsureSuccessStatusCode();
 
         string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+        // Anything that doesn't parse as schema 1 with a commands array is not a BuffBot hub
+        // reply -- ignored outright, never applied.
         IReadOnlyList<MeshCommand> commands = MeshJson.TryParseHeartbeatResponse(body) ?? Array.Empty<MeshCommand>();
-        if (commands.Count == 0)
-            return;
-
-        if (!response.Headers.TryGetValues("X-BuffBot-Proof", out IEnumerable<string>? proofValues))
-            return;
-        string? proof = proofValues.FirstOrDefault();
-        // Only commands whose proof verifies are trusted — this stops a process squatting on the port without the key from driving the bots.
-        if (proof is null || !MeshProof.Verify(key, nonce, proof))
-        {
-            _options.LogInfo("BuffBot web console: heartbeat commands failed proof verification, discarded.");
-            SelfHealKey();
-            return;
-        }
-
         foreach (MeshCommand command in commands)
             _inbound.Enqueue(command);
-    }
-
-    /// <summary>Re-reads the key file and swaps it in if it changed; called whenever the hub's answer suggests this node's key is stale.</summary>
-    private void SelfHealKey()
-    {
-        if (MeshKeyStore.TryRead(_options.KeyPath, out string fresh) && fresh != _key)
-            _key = fresh;
     }
 }

@@ -8,7 +8,6 @@ namespace SolrLabs.BuffBot.Tests.Web;
 public sealed class MeshServerRoutingTests
 {
     private const int Port = 8347;
-    private const string Key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string HubBotId = "local/1";
     private const string SpokeBotId = "world/2";
 
@@ -29,14 +28,18 @@ public sealed class MeshServerRoutingTests
         Assert.Contains(SpokeBotId, body);
     }
 
+    /// <summary>Every route under <c>/api/</c> is served with no <c>Authorization</c> header at
+    /// all, not just tolerant of a missing one.</summary>
     [Fact]
-    public void GetApiBotsWithoutABearerTokenIsUnauthorized()
+    public void GetApiBotsWithNoAuthorizationHeaderSucceeds()
     {
         var (server, _, _) = NewServer();
+        HttpRequest request = Get("/api/bots");
+        Assert.False(request.Headers.ContainsKey("Authorization"));
 
-        (int status, _) = Send(server, Get("/api/bots", key: null));
+        (int status, _) = Send(server, request);
 
-        Assert.Equal(401, status);
+        Assert.Equal(200, status);
     }
 
     [Fact]
@@ -147,9 +150,8 @@ public sealed class MeshServerRoutingTests
 
         var sinkCommands = new List<MeshCommand>();
         var server = new MeshServer(
-            listener: null!, registry, currentKey: () => Key, Port, hubBotId: () => HubBotId, localSink: sinkCommands.Add,
-            pageBytes: [], logInfo: static _ => { }, reportNodeStarted: static _ => { }, isDeciding: static () => false,
-            linkFilePath: "unused-in-these-tests.html");
+            listener: null!, registry, Port, hubBotId: () => HubBotId, localSink: sinkCommands.Add,
+            pageBytes: [], logInfo: static _ => { });
 
         (int status, _) = Send(server, PostCommand(SpokeBotId, "{\"kind\":\"mute\",\"objectId\":5}"));
 
@@ -241,16 +243,6 @@ public sealed class MeshServerRoutingTests
         Assert.Equal(404, status);
     }
 
-    [Fact]
-    public void GetContributorsWithoutABearerTokenIsUnauthorized()
-    {
-        var (server, _, _) = NewServer();
-
-        (int status, _) = Send(server, Get($"/api/bots/{Uri.EscapeDataString(HubBotId)}/contributors", key: null));
-
-        Assert.Equal(401, status);
-    }
-
     private static (MeshServer Server, MeshRegistry Registry, List<MeshCommand> SinkCommands) NewServer(
         Func<uint, IReadOnlyList<Contributor>>? readContributors = null)
     {
@@ -260,21 +252,19 @@ public sealed class MeshServerRoutingTests
 
         var sinkCommands = new List<MeshCommand>();
         var server = new MeshServer(
-            listener: null!, registry, currentKey: () => Key, Port, hubBotId: () => HubBotId, localSink: sinkCommands.Add,
-            pageBytes: [], logInfo: static _ => { }, reportNodeStarted: static _ => { }, isDeciding: static () => false,
-            linkFilePath: "unused-in-these-tests.html", readContributors: readContributors);
+            listener: null!, registry, Port, hubBotId: () => HubBotId, localSink: sinkCommands.Add,
+            pageBytes: [], logInfo: static _ => { }, readContributors: readContributors);
         return (server, registry, sinkCommands);
     }
 
-    private static HttpRequest Get(string path, string? key = Key, string? host = null, string? origin = null) => new(
-        "GET", path, path,
-        Headers(key, host, origin), Array.Empty<byte>());
+    private static HttpRequest Get(string path, string? host = null, string? origin = null) => new(
+        "GET", path, path, Headers(host, origin), Array.Empty<byte>());
 
     private static HttpRequest PostCommand(string botId, string body) => new(
         "POST", $"/api/bots/{Uri.EscapeDataString(botId)}/commands", "",
-        Headers(Key, null, null), Encoding.UTF8.GetBytes(body));
+        Headers(null, null), Encoding.UTF8.GetBytes(body));
 
-    private static Dictionary<string, string> Headers(string? key, string? host, string? origin)
+    private static Dictionary<string, string> Headers(string? host, string? origin)
     {
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -282,8 +272,6 @@ public sealed class MeshServerRoutingTests
         };
         if (origin is not null)
             headers["Origin"] = origin;
-        if (key is not null)
-            headers["Authorization"] = $"Bearer {key}";
         return headers;
     }
 

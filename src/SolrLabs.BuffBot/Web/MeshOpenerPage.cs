@@ -5,7 +5,7 @@ namespace SolrLabs.BuffBot.Web;
 /// <summary>The file a user without a terminal can double-click: a meta-refresh redirect to the tokenized console URL, plus a plain link for a browser that ignores the refresh. Rewritten atomically every time <see cref="MeshNode"/> decides a key.</summary>
 internal static class MeshOpenerPage
 {
-    internal static string DefaultPath() => Path.Combine(MeshKeyStore.BaseDirectory(), "Open BuffBot console.html");
+    internal static string DefaultPath() => Path.Combine(BuffBotAppData.BaseDirectory(), "Open BuffBot console.html");
 
     internal static void Write(string path, string url)
     {
