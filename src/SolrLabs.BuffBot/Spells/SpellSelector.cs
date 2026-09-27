@@ -64,6 +64,11 @@ internal static partial class SpellSelector
     [GeneratedRegex(@"^Incantation\s+of\s+(?<line>.+)$", RegexOptions.IgnoreCase)]
     private static partial Regex IncantationPrefixPattern();
 
+    /// <summary>An aura line's own top-tier shape, "Incantation" embedded rather than leading or
+    /// trailing, e.g. "Aura of Incantation of Hermetic Link Self".</summary>
+    [GeneratedRegex(@"^(?<prefix>.+?)\s+Incantation\s+of\s+(?<rest>.+)$", RegexOptions.IgnoreCase)]
+    private static partial Regex EmbeddedIncantationPattern();
+
     /// <summary>One pass over the catalog, reusable across every set a caller resolves against it
     /// (<see cref="Components.ComponentReportBuilder.ResolveSpellSets"/>) instead of one per set.</summary>
     internal static SpellLineIndex BuildIndex(IReadOnlyList<PluginSpellInfo> catalog)
@@ -157,9 +162,20 @@ internal static partial class SpellSelector
         int? targetTier = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        return ResolveForPlayerRequest(BuildIndex(catalog), lines, kind, targetTier);
+    }
+
+    /// <summary>Same as the catalog overload, against an index a caller already built — the seam
+    /// <see cref="Casting.BuffCoordinator"/> reuses once per catalog refresh.</summary>
+    internal static SpellSelectionResult ResolveForPlayerRequest(
+        SpellLineIndex index,
+        IReadOnlyList<string> lines,
+        SpellTargetKind kind = SpellTargetKind.Other,
+        int? targetTier = null)
+    {
+        ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(lines);
 
-        SpellLineIndex index = BuildIndex(catalog);
         var plan = new List<ResolvedSpell>(lines.Count);
         var unlearned = new List<string>();
         foreach (string line in lines)
@@ -295,6 +311,14 @@ internal static partial class SpellSelector
         if (prefixMatch.Success)
         {
             line = prefixMatch.Groups["line"].Value;
+            rank = int.MaxValue;
+            return true;
+        }
+
+        Match embeddedMatch = EmbeddedIncantationPattern().Match(trimmedName);
+        if (embeddedMatch.Success)
+        {
+            line = $"{embeddedMatch.Groups["prefix"].Value} {embeddedMatch.Groups["rest"].Value}";
             rank = int.MaxValue;
             return true;
         }

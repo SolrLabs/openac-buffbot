@@ -575,7 +575,17 @@ public sealed class BuffCoordinatorTests
             distanceToRequester: static _ => 10d,
             sendReply: (_, _, text) => replies.Add(text));
 
-        Assert.Equal([SelfSpellId, 101u, 100u], magic.SentSpellIds);
+        // B's own self step (nothing marks it still up across chains) still goes first, then B's
+        // own target tier (1) applies to its Other line.
+        Assert.Equal([SelfSpellId, 101u, SelfSpellId], magic.SentSpellIds);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: SelfSpellId, TargetObjectId: 0, WeenieError: 0);
+        coordinator.Pump(
+            0, catalog, activeEnchantments: [], [SelfConfirm("Focus Self VI")], selfBuffingEnabled: true,
+            distanceToRequester: static _ => 10d,
+            sendReply: (_, _, text) => replies.Add(text));
+
+        Assert.Equal([SelfSpellId, 101u, SelfSpellId, 100u], magic.SentSpellIds);
     }
 
     [Fact]
@@ -1035,13 +1045,17 @@ public sealed class BuffCoordinatorTests
         magic.IsCasting = false; // the server's own use-done for the just-confirmed cast above
         queue.TryEnqueue(new BuffRequest(999, "Second", DefaultSpellSets.Buff), out _);
 
+        // The self line is due again for the second chain too (nothing marks it as still up
+        // across chains), so it is sent and confirmed exactly as the first chain's was.
         PumpWith([], tellsAnswered: 5);
-        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: OtherSpellId, TargetObjectId: 999, WeenieError: 0);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: SelfSpellId, TargetObjectId: 0, WeenieError: 0);
+        PumpWith([SelfConfirm("Focus Self VI")], tellsAnswered: 5);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: OtherSpellId, TargetObjectId: 999, WeenieError: 0);
         BuffBotStatus afterSecondChain = PumpWith([Confirm("Strength Other I", "Second")], tellsAnswered: 6);
 
-        // The second chain's cast lands on top of the first chain's, not in place of it -- this
+        // The second chain's casts land on top of the first chain's, not in place of them -- this
         // is a running total for the life of the coordinator, not a per-run count.
-        Assert.Equal(3, afterSecondChain.Counters.CastsLanded);
+        Assert.Equal(4, afterSecondChain.Counters.CastsLanded);
         Assert.Equal(6, afterSecondChain.Counters.TellsAnswered);
     }
 
@@ -2435,6 +2449,231 @@ public sealed class BuffCoordinatorTests
         Assert.True(traceLines.Count(l => l.StartsWith("cast Stamina to Mana Self")) > attemptsBeforeRetry);
     }
 
+    // -- catalog index reuse --------------------------------------------------------------------
+
+    [Fact]
+    public void TheCatalogIndexIsBuiltOnceAcrossManyCallsWithAnUnchangedCatalog()
+    {
+        var queue = new RequestQueue(5);
+        var (coordinator, _, _) = NewCoordinator(queue);
+
+        for (int i = 0; i < 5; i++)
+            coordinator.AreSelfCastsDue(Catalog, activeEnchantments: []);
+
+        Assert.Equal(1, coordinator.CatalogIndexBuildCount);
+    }
+
+    [Fact]
+    public void ANewCatalogInstanceWithIdenticalContentDoesNotClearRememberedMemory()
+    {
+        var queue = new RequestQueue(5);
+        var magic = new FakeMagic();
+        magic.RefuseGateFor.Add(SelfSpellId);
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic };
+        var enchantments = new FakeEnchantments();
+        List<string> traceLines = [];
+        var coordinator = new BuffCoordinator(
+            queue, magic, enchantments, items, equipment, combat, trace: traceLines.Add);
+
+        List<PluginSpellInfo> catalog =
+        [
+            new(
+                SpellId: SelfSpellId, Name: "Focus Self VI", Family: SelfFamily, Tier: 6,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 1200f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        ];
+
+        void Pump(double deltaSeconds, IReadOnlyList<PluginSpellInfo> withCatalog) => coordinator.Pump(
+            deltaSeconds, withCatalog, activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: static _ => 10d,
+            sendReply: (_, _, _) => { });
+
+        int Attempts() => traceLines.Count(l => l.StartsWith("gate Focus Self ->"));
+
+        Pump(59, catalog);
+        Pump(2, catalog); // refused once, remembered
+        int attemptsAfterFirstPass = Attempts();
+        Assert.Equal(1, attemptsAfterFirstPass);
+
+        // A fresh list instance carrying the exact same content, as the outer cache hands out
+        // every few seconds even when nothing was learned, must not clear the remembered refusal.
+        for (int i = 0; i < 3; i++)
+            Pump(60, new List<PluginSpellInfo>(catalog));
+
+        Assert.Equal(attemptsAfterFirstPass, Attempts());
+    }
+
+    [Fact]
+    public void ARefusedSelfLineDoesNotLoopUntilTheCatalogChanges()
+    {
+        var queue = new RequestQueue(5);
+        var magic = new FakeMagic();
+        magic.RefuseGateFor.Add(SelfSpellId);
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic };
+        var enchantments = new FakeEnchantments();
+        List<string> traceLines = [];
+        var coordinator = new BuffCoordinator(
+            queue, magic, enchantments, items, equipment, combat, trace: traceLines.Add);
+
+        List<PluginSpellInfo> catalog =
+        [
+            new(
+                SpellId: SelfSpellId, Name: "Focus Self VI", Family: SelfFamily, Tier: 6,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 1200f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        ];
+
+        void Pump(double deltaSeconds, IReadOnlyList<PluginSpellInfo>? withCatalog = null) => coordinator.Pump(
+            deltaSeconds, withCatalog ?? catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: static _ => 10d,
+            sendReply: (_, _, _) => { });
+
+        int Attempts() => traceLines.Count(l => l.StartsWith("gate Focus Self ->"));
+
+        // Idle pass 1: the line is attempted, refused (not a fizzle) and remembered.
+        Pump(59);
+        Pump(2);
+        int attemptsAfterFirstPass = Attempts();
+        Assert.Equal(1, attemptsAfterFirstPass);
+
+        // Idle passes 2 and 3, ticked forward on the same injected delta clock: no re-attempt,
+        // because nothing else in the set is due.
+        Pump(60);
+        Pump(60);
+        Assert.Equal(attemptsAfterFirstPass, Attempts());
+
+        // A genuine catalog change (content, not just a new list instance) clears the refusal;
+        // re-entering magic mode afterward costs a couple more ticks before the gate re-checks.
+        var refreshedCatalog = new List<PluginSpellInfo>(catalog)
+        {
+            new(
+                SpellId: SelfSpellId + 1, Name: "Focus Self VII", Family: SelfFamily, Tier: 7,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 1200f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        };
+        Pump(60, refreshedCatalog);
+        Pump(0.1, refreshedCatalog);
+        Pump(0.1, refreshedCatalog);
+        Assert.True(Attempts() > attemptsAfterFirstPass);
+    }
+
+    [Fact]
+    public void AnOutTieredSelfLineIsActuallyCastNotSkippedDespiteTheActiveBuffHavingPlentyOfTimeLeft()
+    {
+        var queue = new RequestQueue(5);
+        var magic = new FakeMagic();
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic };
+        var enchantments = new FakeEnchantments();
+        var coordinator = new BuffCoordinator(queue, magic, enchantments, items, equipment, combat);
+
+        const uint TopSelfSpellId = 111;
+        List<PluginSpellInfo> catalog =
+        [
+            Catalog[0], // Focus Self VI, family SelfFamily
+            new(
+                SpellId: TopSelfSpellId, Name: "Focus Self VII", Family: SelfFamily, Tier: 7,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 1200f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        ];
+        // VI active with 40 minutes left -- well past any due threshold on time alone.
+        PluginActiveEnchantment[] active = [new(SpellId: SelfSpellId, Family: SelfFamily, Tier: 6, SecondsRemaining: 2400)];
+
+        void Pump(double deltaSeconds) => coordinator.Pump(
+            deltaSeconds, catalog, activeEnchantments: active, [], selfBuffingEnabled: true,
+            distanceToRequester: static _ => 10d,
+            sendReply: (_, _, _) => { });
+
+        Pump(59);
+        Pump(2); // idle pass: VII learned above the active VI -- due, and actually requested
+
+        Assert.Equal([TopSelfSpellId], magic.SentSpellIds);
+    }
+
+    [Fact]
+    public void ASelfLineRefusedAfterAPortalCutInResumeIsStillRemembered()
+    {
+        const uint WillpowerFamily = 201;
+        const uint WillpowerSpellId = 201;
+
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var magic = new FakeMagic();
+        magic.RefuseGateFor.Add(WillpowerSpellId); // only Willpower Self is ever refused
+        var items = new FakeItems();
+        items.Add(Wand(WandObjectId));
+        var equipment = new FakeEquipment(items);
+        var combat = new FakeCombat { Mode = PluginCombatMode.Magic };
+        var enchantments = new FakeEnchantments();
+        List<string> traceLines = [];
+        var spellSets = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            [DefaultSpellSets.Self] = ["Focus Self", "Willpower Self"],
+            [DefaultSpellSets.Buff] = ["Strength Other"],
+        };
+        var coordinator = new BuffCoordinator(
+            queue, magic, enchantments, items, equipment, combat, spellSets, trace: traceLines.Add);
+
+        List<PluginSpellInfo> catalog =
+        [
+            Catalog[0], // Focus Self VI, family SelfFamily
+            new(
+                SpellId: WillpowerSpellId, Name: "Willpower Self VI", Family: WillpowerFamily, Tier: 6,
+                Difficulty: 0, ManaCost: 0, DurationSeconds: 1200f, School: 0, Description: string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+            Catalog[1], // Strength Other I
+        ];
+
+        // One mutable entry for Focus Self's family, present throughout and only ever edited in
+        // place below, so the active family set itself never looks like it changed.
+        List<PluginActiveEnchantment> active =
+        [
+            new(SpellId: 0, Family: SelfFamily, Tier: 5, SecondsRemaining: 100), // out-tiered and expiring: due
+        ];
+
+        void Pump(IReadOnlyList<PluginChatMessage> messages, double deltaSeconds = 0) => coordinator.Pump(
+            deltaSeconds, catalog, active, messages, selfBuffingEnabled: true,
+            distanceToRequester: static _ => 10d,
+            sendReply: (_, _, _) => { });
+
+        int WillpowerAttempts() => traceLines.Count(l => l.StartsWith("gate Willpower Self ->"));
+
+        Pump([]); // dequeues, sends Focus Self first (due) -- Willpower Self is due too, but later
+        Assert.True(coordinator.RequestInterrupt()); // cuts in while Focus Self is in flight
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: SelfSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump([SelfConfirm("Focus Self VI")]); // Focus Self lands, then suspends before Willpower Self
+        Assert.True(coordinator.IsInterrupted);
+        active[0] = active[0] with { Tier = 6, SecondsRemaining = 1200 }; // now genuinely up
+
+        Assert.True(coordinator.ResumeSuspended(
+            distanceToRequester: static _ => 10d, sendReply: (_, _, _) => { }));
+        Pump([]); // Willpower Self is refused; Strength Other is sent next in the same tick
+        magic.IsCasting = false;
+        magic.LastCompletion = new PluginCastCompletion(Revision: 3, SpellId: OtherSpellId, TargetObjectId: RequesterId, WeenieError: 0);
+        Pump([Confirm("Strength Other I", RequesterName)]); // lands, closes the run
+
+        int attemptsAfterResume = WillpowerAttempts();
+        Assert.Equal(1, attemptsAfterResume);
+
+        // Focus Self is genuinely up now, so only Willpower Self's own remembered refusal decides
+        // whether an idle pass finds anything due at all.
+        Pump([], deltaSeconds: 59);
+        Pump([], deltaSeconds: 2);
+        Pump([]); // lets a bogus full pass re-enter magic mode, if one started at all
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: SelfSpellId, TargetObjectId: 0, WeenieError: 0);
+        Pump([SelfConfirm("Focus Self VI")]); // harmless if nothing was due; confirms Focus Self otherwise
+        Assert.Equal(attemptsAfterResume, WillpowerAttempts());
+    }
+
     // -- component ceiling ---------------------------------------------------------------------
 
     [Fact]
@@ -2715,7 +2954,8 @@ public sealed class BuffCoordinatorTests
         public bool IsCasting { get; set; }
         public PluginCastCompletion LastCompletion { get; set; }
 
-        public PluginCastGate EvaluateGate(uint spellId) => PluginCastGate.Ready;
+        public PluginCastGate EvaluateGate(uint spellId) =>
+            RefuseGateFor.Contains(spellId) ? PluginCastGate.NotKnown : PluginCastGate.Ready;
 
         public bool Cast(uint spellId) => false;
 

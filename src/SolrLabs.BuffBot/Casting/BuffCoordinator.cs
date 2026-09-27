@@ -60,6 +60,29 @@ internal sealed class BuffCoordinator
 
     private double _idleSecondsSinceSelfBuffCheck;
 
+    // Rebuilt only when a caller hands in a different catalog instance, never per call or per tick.
+    private IReadOnlyList<PluginSpellInfo>? _indexedCatalog;
+    private SpellSelector.SpellLineIndex? _catalogIndex;
+
+    // Exposed for a test to prove the index above is reused rather than rebuilt.
+    internal int CatalogIndexBuildCount { get; private set; }
+
+    // The catalog content the two memories below were last checked against — a count/id
+    // signature, not an instance, since a refreshed list can carry identical content.
+    private long _selfLineMemorySignature;
+
+    // Family -> the tier a self line last actually landed at, top or stepped down. Cleared only
+    // when the catalog's content changes, so a tier upgrade is never mistaken for an old step-down.
+    private readonly Dictionary<uint, int> _selfLineLastLandedTier = new();
+
+    // Families whose self line failed or was refused (any non-fizzle failure) rather than landing
+    // at all. Cleared on a catalog refresh or once the active family set itself changes.
+    private readonly HashSet<uint> _selfLineRefusedFamilies = new();
+    private HashSet<uint>? _activeFamiliesForRefusalMemory;
+
+    // The self-only slice of whatever plan Begin was just called with, consumed once that run finishes.
+    private IReadOnlyList<ResolvedSpell> _pendingSelfPlan = Array.Empty<ResolvedSpell>();
+
     private bool _isIdleTopUp;
 
     // Reset whenever mana could have changed, so a caster below the high mark isn't retried every tick.
@@ -305,7 +328,7 @@ internal sealed class BuffCoordinator
                     _toppingUpBeforeNext = true;
                     _caster.BeginTopUp(ManaUpkeepPlan(catalog));
                 }
-                else if (!TryStart(next, catalog, activeEnchantments, distanceToRequester, sendReply, objects, ranks))
+                else if (!TryStart(next, catalog, activeEnchantments, selfBuffingEnabled, distanceToRequester, sendReply, objects, ranks))
                 {
                     return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
                 }
@@ -328,7 +351,7 @@ internal sealed class BuffCoordinator
         {
             // TryStart re-checks range and re-resolves the spell set fresh at this moment.
             _toppingUpBeforeNext = false;
-            TryStart(_current!.Value, catalog, activeEnchantments, distanceToRequester, sendReply, objects, ranks);
+            TryStart(_current!.Value, catalog, activeEnchantments, selfBuffingEnabled, distanceToRequester, sendReply, objects, ranks);
             return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
         }
 
@@ -336,6 +359,7 @@ internal sealed class BuffCoordinator
         {
             _isIdleSelfBuffRun = false;
             _idleTopUpAttempted = false;
+            RecordSelfLineLandings(result.Steps);
             if (IsMissingComponents(result))
                 BeginComponentBackoff(components);
             return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
@@ -357,6 +381,7 @@ internal sealed class BuffCoordinator
                 ? result.Steps
                 : [.. _stepsBeforeResume, .. result.Steps];
             _stepsBeforeResume = Array.Empty<CastStep>();
+            RecordSelfLineLandings(stepsSoFar);
             _suspendedStopReason = null;
             _suspendedRun = new SuspendedRun(
                 _current!.Value, _caster.RemainingPlan, stepsSoFar, ManaUpkeepPlan(catalog));
@@ -374,6 +399,7 @@ internal sealed class BuffCoordinator
             ? result.Steps
             : [.. _stepsBeforeResume, .. result.Steps];
         _stepsBeforeResume = Array.Empty<CastStep>();
+        RecordSelfLineLandings(allSteps);
 
         // A landed cast is evidence of reagents, since a real request attempts regardless of the backoff.
         if (allSteps.Any(static step => step.Outcome == CastOutcome.Cast))
@@ -459,12 +485,15 @@ internal sealed class BuffCoordinator
         if (_idleComponentBackoffActive)
             return false;
 
-        IReadOnlyList<ResolvedSpell> due =
-            SelfBuffPlanner.PlanDue(catalog, _selfSpellLines, activeEnchantments);
+        SyncRefusalMemory(activeEnchantments);
+        IReadOnlyList<ResolvedSpell> due = SelfBuffPlanner.PlanFullRebuff(
+            IndexFor(catalog), _selfSpellLines, activeEnchantments, _caster.ComponentCeilingRung,
+            _selfLineLastLandedTier, _selfLineRefusedFamilies);
         if (due.Count == 0)
             return false;
 
         _isIdleSelfBuffRun = true;
+        _pendingSelfPlan = due;
         _caster.Begin(due, targetObjectId: 0u, targetName: string.Empty, ManaUpkeepPlan(catalog));
         return true;
     }
@@ -540,6 +569,7 @@ internal sealed class BuffCoordinator
         BuffRequest request,
         IReadOnlyList<PluginSpellInfo> catalog,
         IReadOnlyList<PluginActiveEnchantment> activeEnchantments,
+        bool selfBuffingEnabled,
         Func<uint, double?> distanceToRequester,
         Action<uint, string, string> sendReply,
         IReadOnlyList<PluginWorldObject> capturedObjects,
@@ -558,10 +588,12 @@ internal sealed class BuffCoordinator
             ? found
             : Array.Empty<string>();
 
+        SpellSelector.SpellLineIndex index = IndexFor(catalog);
+
         // An unlearned line is folded into the closing tell; refusal is only for malformed set
         // data or a profile with nothing learned at all.
         SpellSelectionResult selection =
-            SpellSelector.ResolveForPlayerRequest(catalog, lines, targetTier: _targetTier);
+            SpellSelector.ResolveForPlayerRequest(index, lines, targetTier: _targetTier);
         if (!selection.IsSuccess)
         {
             Abandon(
@@ -589,9 +621,17 @@ internal sealed class BuffCoordinator
             return false;
         }
 
-        // Best effort: an untrained self line doesn't block the rest, unlike the requester's own line above.
-        IReadOnlyList<ResolvedSpell> selfDue =
-            SelfBuffPlanner.PlanDue(catalog, _selfSpellLines, activeEnchantments);
+        SyncRefusalMemory(activeEnchantments);
+
+        // On: a request rebuffs the whole self set like the idle pass. Off: today's due-only take.
+        IReadOnlyList<ResolvedSpell> selfDue = selfBuffingEnabled
+            ? SelfBuffPlanner.PlanFullRebuff(
+                index, _selfSpellLines, activeEnchantments, _caster.ComponentCeilingRung,
+                _selfLineLastLandedTier, _selfLineRefusedFamilies)
+            : SelfBuffPlanner.PlanDue(
+                index, _selfSpellLines, activeEnchantments, _caster.ComponentCeilingRung,
+                _selfLineLastLandedTier, _selfLineRefusedFamilies);
+        _pendingSelfPlan = selfDue;
         var plan = new List<ResolvedSpell>(selfDue.Count + orderedPlan.Count);
         plan.AddRange(selfDue);
         plan.AddRange(orderedPlan);
@@ -607,7 +647,7 @@ internal sealed class BuffCoordinator
                 capturedObjects, request.RequesterObjectId, out PluginWorldObject shield))
             {
                 SpellSelectionResult baneSelection =
-                    SpellSelector.ResolveForPlayerRequest(catalog, baneLines, targetTier: _targetTier);
+                    SpellSelector.ResolveForPlayerRequest(index, baneLines, targetTier: _targetTier);
                 foreach (ResolvedSpell resolved in baneSelection.Plan)
                     plan.Add(resolved with { TargetOverride = (shield.ObjectId, shield.Name) });
                 unlearnedLines.AddRange(baneSelection.UnlearnedLines);
@@ -631,7 +671,7 @@ internal sealed class BuffCoordinator
         IReadOnlyList<string> lines = _spellSets.TryGetValue(setName, out var found)
             ? found
             : Array.Empty<string>();
-        SpellSelectionResult selection = SpellSelector.ResolveForPlayerRequest(catalog, lines, targetTier: _targetTier);
+        SpellSelectionResult selection = SpellSelector.ResolveForPlayerRequest(IndexFor(catalog), lines, targetTier: _targetTier);
         return selection.IsSuccess && selection.Plan.Count == 0;
     }
 
@@ -751,7 +791,105 @@ internal sealed class BuffCoordinator
     }
 
     private IReadOnlyList<ResolvedSpell> ManaUpkeepPlan(IReadOnlyList<PluginSpellInfo> catalog) =>
-        SpellSelector.ResolveLenient(catalog, _manaUpkeepLines, SpellTargetKind.Self);
+        SpellSelector.ResolveLenient(IndexFor(catalog), _manaUpkeepLines, SpellTargetKind.Self);
+
+    private SpellSelector.SpellLineIndex IndexFor(IReadOnlyList<PluginSpellInfo> catalog)
+    {
+        if (ReferenceEquals(_indexedCatalog, catalog))
+            return _catalogIndex!;
+
+        // The host hands in a new list every few seconds even when nothing was learned; only a
+        // changed signature (not a changed instance) may drop either memory below.
+        long signature = CatalogContentSignature(catalog);
+        if (signature != _selfLineMemorySignature)
+        {
+            _selfLineLastLandedTier.Clear();
+            _selfLineRefusedFamilies.Clear();
+            _selfLineMemorySignature = signature;
+        }
+
+        _indexedCatalog = catalog;
+        _catalogIndex = SpellSelector.BuildIndex(catalog);
+        CatalogIndexBuildCount++;
+        return _catalogIndex;
+    }
+
+    // Order-independent, so a resort between refreshes never looks like a change.
+    private static long CatalogContentSignature(IReadOnlyList<PluginSpellInfo> catalog)
+    {
+        long signature = catalog.Count;
+        foreach (PluginSpellInfo spell in catalog)
+            signature = unchecked(signature + ((long)spell.SpellId + 1) * 2654435761L);
+        return signature;
+    }
+
+    // A remembered refusal only makes sense against the active-family snapshot it was recorded
+    // against; once that set itself changes, the refusal is re-tried rather than assumed stale.
+    private void SyncRefusalMemory(IReadOnlyList<PluginActiveEnchantment> activeEnchantments)
+    {
+        var families = new HashSet<uint>();
+        foreach (PluginActiveEnchantment enchantment in activeEnchantments)
+            families.Add(enchantment.Family);
+
+        if (_selfLineRefusedFamilies.Count > 0
+            && _activeFamiliesForRefusalMemory is not null
+            && !families.SetEquals(_activeFamiliesForRefusalMemory))
+            _selfLineRefusedFamilies.Clear();
+
+        _activeFamiliesForRefusalMemory = families;
+    }
+
+    /// <summary>Lets <see cref="Responder"/>'s ack become "On it — buffing up first" without the
+    /// caller rescanning the catalog itself.</summary>
+    internal bool AreSelfCastsDue(
+        IReadOnlyList<PluginSpellInfo> catalog, IReadOnlyList<PluginActiveEnchantment> activeEnchantments)
+    {
+        SyncRefusalMemory(activeEnchantments);
+        return SelfBuffPlanner.PlanDue(
+            IndexFor(catalog), _selfSpellLines, activeEnchantments, _caster.ComponentCeilingRung,
+            _selfLineLastLandedTier, _selfLineRefusedFamilies).Count > 0;
+    }
+
+    // Matches landed and failed steps back to the self-only plan, so neither a stepped-down
+    // landing nor a refusal rediscovers (and re-attempts) itself every idle interval on its own.
+    private void RecordSelfLineLandings(IReadOnlyList<CastStep> steps)
+    {
+        if (_pendingSelfPlan.Count == 0)
+            return;
+
+        // A portal cut-in suspends the run before every pending line is reached; whatever is left
+        // stays pending for the eventual resume rather than being dropped here.
+        var remaining = new List<ResolvedSpell>(_pendingSelfPlan);
+        foreach (CastStep step in steps)
+        {
+            int index = remaining.FindIndex(
+                candidate => string.Equals(candidate.Line, step.Line, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+                continue;
+
+            ResolvedSpell line = remaining[index];
+            remaining.RemoveAt(index);
+
+            if (step.Outcome == CastOutcome.Cast)
+            {
+                foreach (PluginSpellInfo rung in line.LearnedTiersDescending)
+                {
+                    if (rung.SpellId != step.SpellId)
+                        continue;
+                    _selfLineLastLandedTier[line.Spell.Family] = rung.Tier;
+                    break;
+                }
+
+                _selfLineRefusedFamilies.Remove(line.Spell.Family);
+            }
+            else if (step.Outcome == CastOutcome.Failed && step.Failure?.Kind != CastFailureKind.Fizzled)
+            {
+                _selfLineRefusedFamilies.Add(line.Spell.Family);
+            }
+        }
+
+        _pendingSelfPlan = remaining;
+    }
 
     /// <summary>Never returns <see langword="null"/>: <see cref="Pump"/> always supplies one,
     /// falling back to this when the caller (mostly a test) supplies none.</summary>

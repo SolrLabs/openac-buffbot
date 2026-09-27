@@ -1504,14 +1504,14 @@ internal sealed class CastStateMachine
     private uint LedgerTarget(ResolvedSpell current) =>
         current.Spell.IsSelfTargeted ? SelfLedgerTarget : EffectiveTarget(current);
 
-    // A player request's target-facing steps never consult the ledger; self-targeted steps and idle/top-up runs still do.
+    // Self-targeted and player-request steps never consult the ledger: the planner already
+    // decided those are due. Only an idle/top-up run's Other-targeted step still gates on it.
     private bool IsAlreadyUp(ResolvedSpell current)
     {
-        uint ledgerTarget = LedgerTarget(current);
-        if (_isPlayerRequest && ledgerTarget != SelfLedgerTarget)
+        if (current.Spell.IsSelfTargeted || _isPlayerRequest)
             return false;
 
-        if (!_confirmed.TryGetValue((ledgerTarget, current.Spell.Family), out var entry))
+        if (!_confirmed.TryGetValue((LedgerTarget(current), current.Spell.Family), out var entry))
             return false;
 
         return entry.SecondsRemaining > _skipThresholdSeconds;

@@ -766,14 +766,8 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         if (_host is not { Automation.IsAvailable: true } host)
             return false;
 
-        IReadOnlyList<string> selfLines = DefaultSpellSets.Table.TryGetValue(DefaultSpellSets.Self, out var lines)
-            ? lines
-            : Array.Empty<string>();
-
-        return SelfBuffPlanner.PlanDue(
-            ResolveBeneficialSpells(host),
-            selfLines,
-            host.Automation.Character.ActiveEnchantments).Count > 0;
+        return _coordinator?.AreSelfCastsDue(
+            ResolveBeneficialSpells(host), host.Automation.Character.ActiveEnchantments) ?? false;
     }
 
     /// <summary>Lets <see cref="Responder"/>'s ack become "On it — topping up mana first."</summary>

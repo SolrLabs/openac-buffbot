@@ -443,24 +443,25 @@ public sealed class DefaultSpellSetsTests
     [Fact]
     public void TheCasterOnlyBuffsItselfWithWhatMakesItACaster()
     {
-        // Nothing in a town hits the bot, and these eight lines were nearly half of
-        // every upkeep cycle's mana and cast time, paid again each time they expired.
+        // Nothing in a town hits the bot, so no self armor or protection line is here.
         IReadOnlyList<string> self = DefaultSpellSets.Table[DefaultSpellSets.Self];
 
         Assert.DoesNotContain("Armor Self", self);
         Assert.DoesNotContain(self, line => line.EndsWith("Protection Self", StringComparison.Ordinal));
 
-        // What is left is the case for keeping any of it: skill and mana to cast with, and the
-        // three regeneration lines the mana bounce feeds on.
+        // Skill and mana to cast with, the regeneration lines the mana bounce feeds on, the xp
+        // chain, and the caster's own item spell.
         foreach (string kept in new[]
                  {
                      "Focus Self", "Willpower Self",
                      "Creature Enchantment Mastery Self", "Mana Conversion Mastery Self",
                      "Life Magic Mastery Self", "Item Enchantment Mastery Self",
                      "Mana Renewal Self", "Rejuvenation Self", "Regeneration Self",
+                     "Endurance Self", "Leadership Mastery Self", "Arcane Enlightenment Self",
+                     "Fealty Self", "Aura of Hermetic Link Self",
                  })
             Assert.Contains(kept, self);
-        Assert.Equal(9, self.Count);
+        Assert.Equal(14, self.Count);
     }
 
     [Fact]

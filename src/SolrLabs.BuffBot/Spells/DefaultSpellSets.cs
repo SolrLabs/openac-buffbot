@@ -285,6 +285,11 @@ internal static class DefaultSpellSets
                 "Mana Renewal Self",
                 "Rejuvenation Self",
                 "Regeneration Self",
+                "Endurance Self",
+                "Leadership Mastery Self",
+                "Arcane Enlightenment Self",
+                "Fealty Self",
+                "Aura of Hermetic Link Self",
             ],
             [SelfDefence] =
             [

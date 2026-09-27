@@ -972,7 +972,7 @@ public sealed class CastStateMachineTests
     }
 
     [Fact]
-    public void SelfTargetedStepsInsideAPlayerRequestStillSkipForTheFullDuration()
+    public void SelfTargetedStepsAreNeverLedgerSkippedTheCallerAlreadyDecided()
     {
         var (machine, magic, enchantments, _) = PreparedMachine();
         machine.Begin(
@@ -989,13 +989,16 @@ public sealed class CastStateMachineTests
         machine.Begin(
             [ResolvedSelf(family: 77, tier: 6, spellId: 99)], Target, TargetName, isPlayerRequest: true);
         int selfGateCallsBefore = magic.SelfGateCalls;
-        CastRunResult? second = machine.Advance(0, []);
+        Assert.Null(machine.Advance(0, [])); // re-evaluated and re-sent, not skipped
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 2, SpellId: 99, TargetObjectId: 0, WeenieError: 0);
+        CastRunResult? second = machine.Advance(0.1, [SelfConfirm("Focus Self VI")]);
 
         Assert.NotNull(second);
         Assert.True(second!.IsSuccess);
         CastStep step = Assert.Single(second.Steps);
-        Assert.Equal(CastOutcome.Skipped, step.Outcome);
-        Assert.Equal(selfGateCallsBefore, magic.SelfGateCalls); // never re-evaluated: full duration ledger still applies
+        Assert.Equal(CastOutcome.Cast, step.Outcome);
+        Assert.True(magic.SelfGateCalls > selfGateCallsBefore); // the planner already decided; the ledger is never consulted
     }
 
     [Fact]

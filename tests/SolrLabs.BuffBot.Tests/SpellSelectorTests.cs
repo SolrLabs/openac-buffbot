@@ -120,6 +120,24 @@ public sealed class SpellSelectorTests
     }
 
     [Fact]
+    public void AnAuraLineIndexesItsEmbeddedIncantationFormAboveItsNumerals()
+    {
+        PluginSpellInfo[] catalog =
+        [
+            Spell(1, "Aura of Hermetic Link Self V", family: 10, tier: 5, isSelfTargeted: true),
+            Spell(2, "Aura of Hermetic Link Self VI", family: 10, tier: 6, isSelfTargeted: true),
+            Spell(3, "Aura of Incantation of Hermetic Link Self", family: 10, tier: 6, isSelfTargeted: true),
+        ];
+
+        SpellSelectionResult result =
+            SpellSelector.Resolve(catalog, ["Aura of Hermetic Link Self"], SpellTargetKind.Self);
+
+        Assert.True(result.IsSuccess);
+        ResolvedSpell resolved = Assert.Single(result.Plan);
+        Assert.Equal(3u, resolved.Spell.SpellId);
+    }
+
+    [Fact]
     public void ABothFormsLineCollapsesTheTwoIncantationIdsToOneRung()
     {
         // The same conceptual top tier under two spell ids must carry once, not twice,
