@@ -47,7 +47,7 @@ public sealed class BuffCoordinatorTests
         Pump(coordinator, [Confirm("Strength Other I", RequesterName)], enabled: true, replies);
 
         string closing = Assert.Single(replies);
-        Assert.Equal("All set: cast 2 buffs.", closing);
+        Assert.Equal("All set: cast 1 buff.", closing);
     }
 
     /// <summary>A stance the server hasn't confirmed yet blocks the whole run, not only the
@@ -452,7 +452,7 @@ public sealed class BuffCoordinatorTests
 
         string closing = Assert.Single(replies);
         Assert.Equal(
-            "I cast what I could: buffed 2, 0 already up. I haven't learned Endurance Other yet.",
+            "I cast what I could: buffed 1, 0 already up. I haven't learned Endurance Other yet.",
             closing);
     }
 
@@ -701,6 +701,34 @@ public sealed class BuffCoordinatorTests
         // lookup for DefaultSpellSets.ManaUpkeep is what sent the bounce, not Strength Other.
         Assert.Equal([ManaSpellId], magic.SentSpellIds);
         Assert.True(magic.LastRequestWasSelfTargeted);
+    }
+
+    [Fact]
+    public void TheClosingCountLeavesOutTheBotsOwnSelfCastsAndManaBounces()
+    {
+        const uint StaminaToManaId = 901;
+        const uint RevitalizeId = 902;
+        List<PluginSpellInfo> catalog =
+        [
+            new(OtherSpellId, "Strength Other I", OtherFamily, 1, 0, 50, 120f, 0, string.Empty,
+                IsSelfTargeted: false, IsBeneficial: true),
+            new(StaminaToManaId, "Stamina to Mana Self I", 900, 1, 0, 0, 0f, 0, string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+            new(RevitalizeId, "Revitalize Self I", 901, 1, 0, 0, 0f, 0, string.Empty,
+                IsSelfTargeted: true, IsBeneficial: true),
+        ];
+        CastStep[] steps =
+        [
+            new("Stamina to Mana Self", StaminaToManaId, CastOutcome.Cast),
+            new("Revitalize Self", RevitalizeId, CastOutcome.Cast),
+            new("Strength Other", OtherSpellId, CastOutcome.Cast),
+            new("Stamina to Mana Self", StaminaToManaId, CastOutcome.Cast),
+            new("Revitalize Self", RevitalizeId, CastOutcome.Cast),
+        ];
+
+        IReadOnlyList<CastStep> requesterSteps = BuffCoordinator.RequesterSteps(steps, catalog);
+
+        Assert.Equal("All set: cast 1 buff.", DefaultReplies.ClosingReply(requesterSteps));
     }
 
     [Fact]
@@ -1543,7 +1571,7 @@ public sealed class BuffCoordinatorTests
         Pump([Confirm("Endurance Other I", RequesterName)]);
 
         string closing = Assert.Single(replies);
-        Assert.Equal("All set: cast 4 buffs.", closing);
+        Assert.Equal("All set: cast 2 buffs.", closing);
     }
 
     [Fact]
@@ -1626,7 +1654,7 @@ public sealed class BuffCoordinatorTests
 
         string closing = Assert.Single(replies);
         // Strength Other, the landed Stamina to Mana Self, and Endurance Other -- not the dropped Revitalize.
-        Assert.Equal("All set: cast 3 buffs.", closing);
+        Assert.Equal("All set: cast 2 buffs.", closing);
     }
 
     [Fact]

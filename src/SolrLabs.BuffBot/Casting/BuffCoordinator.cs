@@ -413,15 +413,27 @@ internal sealed class BuffCoordinator
         if (result is { Outcome: CastRunOutcome.Failed, Failure: { Kind: CastFailureKind.OutOfRange } })
             _stats.RecordRefusal(RefusalReason.OutOfRange, finished.RequesterName);
 
+        // The requester hears about their own buffs only; self-buffs and mana bounces are the bot's.
+        IReadOnlyList<CastStep> requesterSteps = RequesterSteps(allSteps, catalog);
         string closing = result.Outcome switch
         {
-            CastRunOutcome.Success => DefaultReplies.ClosingReply(allSteps, result.ComponentCeilingRung),
-            CastRunOutcome.Partial => DefaultReplies.ClosingPartial(allSteps, result.ComponentCeilingRung),
+            CastRunOutcome.Success => DefaultReplies.ClosingReply(requesterSteps, result.ComponentCeilingRung),
+            CastRunOutcome.Partial => DefaultReplies.ClosingPartial(requesterSteps, result.ComponentCeilingRung),
             CastRunOutcome.Stopped => DefaultReplies.ClosingStopped(result.StopReason!.Value),
-            _ => DefaultReplies.ClosingFailure(result.Failure!.Value, allSteps),
+            _ => DefaultReplies.ClosingFailure(result.Failure!.Value, requesterSteps),
         };
         sendReply(finished.RequesterObjectId, finished.RequesterName, closing);
         return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
+    }
+
+    internal static IReadOnlyList<CastStep> RequesterSteps(
+        IReadOnlyList<CastStep> steps, IReadOnlyList<PluginSpellInfo> catalog)
+    {
+        var selfSpellIds = new HashSet<uint>();
+        foreach (PluginSpellInfo spell in catalog)
+            if (spell.IsSelfTargeted)
+                selfSpellIds.Add(spell.SpellId);
+        return steps.Where(step => !selfSpellIds.Contains(step.SpellId)).ToList();
     }
 
     private BuffBotStatus BuildStatus(bool enabled, int tellsAnswered, IReadOnlyList<MutedEntry> muted)
