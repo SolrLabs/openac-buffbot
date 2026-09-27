@@ -5,8 +5,9 @@ namespace SolrLabs.BuffBot.Tests;
 
 public sealed class TellListenerTests
 {
-    private const uint OwnObjectId = 999;
-    private const uint OtherObjectId = 1234;
+    private const uint OwnObjectId = 0x50000999u;
+    private const uint OtherObjectId = 0x50001234u;
+    private const uint NpcObjectId = 0x7EA30005u;
 
     [Fact]
     public void ExtractTellsReturnsOnlyKindThreeMessages()
@@ -69,6 +70,51 @@ public sealed class TellListenerTests
         listener.ExtractTells([ownTell], OwnObjectId);
 
         Assert.Equal(4ul, listener.LastSequence);
+    }
+
+    [Fact]
+    public void ANpcDialogueLineArrivingAsATellIsDroppedSilently()
+    {
+        var listener = new TellListener();
+        PluginChatMessage npcTell = Message(1, kind: 3, text: "I have nothing for you.", senderObjectId: NpcObjectId);
+
+        IReadOnlyList<PluginChatMessage> result = listener.ExtractTells([npcTell], OwnObjectId);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ANpcTellStillAdvancesTheSequence()
+    {
+        var listener = new TellListener();
+        PluginChatMessage npcTell = Message(6, kind: 3, text: "I have nothing for you.", senderObjectId: NpcObjectId);
+
+        listener.ExtractTells([npcTell], OwnObjectId);
+
+        Assert.Equal(6ul, listener.LastSequence);
+    }
+
+    [Fact]
+    public void ATellWithAZeroSenderIsDroppedSilently()
+    {
+        var listener = new TellListener();
+        PluginChatMessage zeroSenderTell = Message(1, kind: 3, text: "hey", senderObjectId: 0);
+
+        IReadOnlyList<PluginChatMessage> result = listener.ExtractTells([zeroSenderTell], OwnObjectId);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void APlayerTellIsStillAnswered()
+    {
+        var listener = new TellListener();
+        PluginChatMessage playerTell = Message(1, kind: 3, text: "buff", senderObjectId: OtherObjectId);
+
+        IReadOnlyList<PluginChatMessage> result = listener.ExtractTells([playerTell], OwnObjectId);
+
+        Assert.Single(result);
+        Assert.Equal(playerTell, result[0]);
     }
 
     private static PluginChatMessage Message(

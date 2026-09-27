@@ -2,7 +2,7 @@ using AcDream.Plugin.Abstractions;
 
 namespace SolrLabs.BuffBot.Chat;
 
-/// <summary>Filters a captured batch of chat messages down to tells from someone other than the bot's own character, tracking the sequence cursor for the next capture.</summary>
+/// <summary>Filters a captured batch of chat messages down to tells from a player other than the bot's own character, tracking the sequence cursor for the next capture.</summary>
 internal sealed class TellListener
 {
     private ulong _lastSequence;
@@ -27,6 +27,8 @@ internal sealed class TellListener
             if (message.Kind != (int)ChatKind.Tell)
                 continue;
             if (message.SenderObjectId == ownObjectId)
+                continue;
+            if (!PlayerSender.IsPlayer(message.SenderObjectId))
                 continue;
 
             (tells ??= []).Add(message);
