@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-3b82c4">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-3b82c4">
   <img alt="Plugin API" src="https://img.shields.io/badge/OpenAC%20plugin%20API-v1-3b82c4">
   <img alt="Platforms" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20macOS-0d2b45">
   <img alt="Hosts" src="https://img.shields.io/badge/hosts-graphical%20%7C%20headless-0d2b45">
@@ -60,7 +60,7 @@ Send the bot a tell with a keyword. That's it.
 /tell Solr, heavy
 ```
 
-It replies with where you are in line, tells you when it starts, and casts until you are buffed. Stay within range (about 67 meters by default) until it finishes.
+It replies with where you are in line, tells you when it starts, and casts until you are buffed. Stay close until it finishes. How far a buff reaches depends on the bot's training, from a few metres for a new bot up to 75; if you are too far away it tells you to come closer.
 
 ### Buff keywords
 
@@ -118,7 +118,7 @@ A bot with no tie set says so rather than leaving you waiting.
 1. **Install.** Open the OpenAC launcher, find **BuffBot** in the plugins list, and press **Install**. The launcher shows you what the plugin asks permission to do (read tells, run the local web console, save its settings, open your browser).
 2. **Log in** with your buffer character. BuffBot does nothing until you turn it on for that character.
 3. **Turn it on.** Type `/buffbot on` in your chat box, or press the enable toggle in the BuffBot panel. The choice is remembered for that character across logins.
-4. **Open the console.** Press **Open web console** in the BuffBot panel. Your browser opens straight onto the console with access already granted.
+4. **Open the console.** Press **Open web console** in the BuffBot panel. Your browser opens straight onto the console.
 
 To stop taking requests, type `/buffbot off`. Anyone still waiting in line gets a tell saying the queue was cleared.
 
@@ -129,7 +129,7 @@ In the launcher, pick the character, choose **Headless**, and start it. The head
 With no panel to click, get the console link from the bot's log. Look for the line that starts with:
 
 ```
-BuffBot web console: http://127.0.0.1:8347/?token=...
+BuffBot web console: http://127.0.0.1:8347/
 ```
 
 Open that full address in a browser on the same machine. A headless bot also can't read spell component names, so the Components tab tells you so instead of showing stock.
@@ -140,9 +140,7 @@ Every BuffBot on the same machine shares one console. The first bot to start ser
 
 ## The web console
 
-The console lives at `http://127.0.0.1:8347`. It only listens on your own machine and every request needs the access key from your link, so nobody else on your network can reach it.
-
-The access key can change when the console restarts. If the page says it needs its access link, press **Open web console** in game again, or copy the new link from the headless log.
+The console lives at `http://127.0.0.1:8347/`. It only listens on your own machine, and it refuses any request that doesn't come from it, so nobody else on your network can reach it. The address never changes, so a bookmark keeps working.
 
 ### Live
 
@@ -175,9 +173,8 @@ Changes take effect on the bot's next run, and are saved per character.
 | **Target tier** | Top learned | The spell level player requests are cast at. The bot's own buffs always use its top learned tier. |
 | **Buff tier fallback** | On | If a spell fizzles repeatedly or the bot can't afford it, step down a tier instead of skipping it. |
 | **Fizzles before skipping** | 6 | How many fizzles in a row on one spell before the bot gives up on it and moves on (1 to 20). |
-| **Idle self-buff upkeep** | On | Rebuff itself (masteries, Focus, Willpower, regeneration) whenever the queue is empty. |
+| **Idle self-buff upkeep** | On | Keep its own buffs up (masteries, Focus, Willpower, Endurance, regeneration, Leadership, Fealty, Arcane Enlightenment and Hermetic Link). When any runs low it recasts them all at the highest tier it knows, whenever the queue is empty or before the next request. |
 | **Split peas** | On | When a reagent drops below the low-stock mark, use a Splitting Tool on a matching pea to make more. |
-| **Refusal range** | 67.5 m | How close a player must be to be served (40 to 75 m). Set a little under the server's 75 m so a player who drifts doesn't break the chain. |
 | **Replies per sender** | 12 per minute | The flood guard (2 to 20). Beyond this, a player is rate limited. Sending the same thing over and over gets them muted, starting at 1 minute and doubling on each repeat offense up to a 4-minute cap. |
 | **Component low-stock mark** | 25 | The stock level that turns a component red on the Components tab. |
 | **Primary portal** | Not set | Where the bot's primary portal goes, written in your own words (up to 160 characters) — players hear this text verbatim, so "Aerlinthe — dangerous drop" works. Leave it empty to offer no portal. |
@@ -251,7 +248,7 @@ Installing, updating or removing the plugin never touches that `files/` folder. 
 
 **Upgrading from an OpenAC before 0.1.17?** That release reorganised where the client keeps everything, and it does not carry plugin data across. BuffBot brings its own over the first time it starts: anything you had is copied into the new location, anything you have already re-made is left exactly as it is, and the old files are read but never changed or deleted.
 
-The console's access key is kept separately, in a `solrlabs.buffbot` folder in your user app-data directory (`%APPDATA%\solrlabs.buffbot` on Windows, `~/.config/solrlabs.buffbot` on macOS and Linux). BuffBot falls back to that folder for everything else only if the client cannot offer it storage at all.
+If the client cannot offer it storage at all, BuffBot falls back to a `solrlabs.buffbot` folder in your user app-data directory (`%APPDATA%\solrlabs.buffbot` on Windows, `~/.config/solrlabs.buffbot` on macOS and Linux).
 
 ## Maturity
 

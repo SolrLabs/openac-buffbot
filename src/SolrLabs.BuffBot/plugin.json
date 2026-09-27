@@ -1,7 +1,7 @@
 {
   "id": "solrlabs.buffbot",
   "displayName": "BuffBot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entryDll": "SolrLabs.BuffBot.dll",
   "apiVersion": 1,
   "minHostVersion": "0.1.17",
@@ -9,8 +9,8 @@
   "capabilitiesVersion": 1,
   "capabilities": [
     { "name": "chat", "note": "Reads tells and replies to buff requests." },
-    { "name": "network", "note": "Serves a local web console and links with other BuffBots on your network." },
-    { "name": "fileWrite", "note": "Saves settings and the console key in your user app-data folder." },
+    { "name": "network", "note": "Serves a web console on your own machine and links with the other BuffBots running there." },
+    { "name": "fileWrite", "note": "Saves its settings in your user app-data folder." },
     { "name": "processLaunch", "note": "Opens the web console in your default browser." }
   ]
 }

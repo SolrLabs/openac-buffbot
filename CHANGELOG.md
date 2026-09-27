@@ -2,6 +2,50 @@
 
 All notable changes to BuffBot. Versions follow [SemVer](https://semver.org).
 
+## 0.2.0 — 2026-09-27
+
+### Fixed
+
+- **A young bot no longer tries casts it can't reach.** How far a buff reaches depends on the
+  spell's tier and the caster's own training, and for a new caster it can be barely five metres.
+  The bot used a flat 67.5 m for everyone, so a low-level bot would start a chain on someone
+  standing a few steps too far away and watch every spell come back refused. It now works out each
+  spell's real reach, keeps a metre in hand, and asks you to come closer before it casts anything.
+- **"Come closer", not "something's wrong".** When the server does refuse a spell for range, the run
+  ends there with a plain "you're too far away, come closer", instead of three refusals in a row
+  tripping the bot's "something is wrong" stop. If you had just said `cancel`, you get the cancel
+  reply instead.
+- **No more twelve-second stalls after splitting a pea.** After a pea split the bot could send its
+  next spell before the server had finished switching it back to magic, and the server quietly
+  dropped it. The bot then waited twelve seconds for a spell that was never cast and skipped it.
+  It now waits until the server agrees it is holding its wand ready.
+- **The closing count is your buffs only.** "All set: cast 58 buffs" used to include the bot's own
+  self-buffs and its mana top-ups, so the same request could report 44, 46 or 58 depending on how
+  much mana the bot had. It now counts only what landed on you.
+- **The bot no longer talks back to NPCs.** An NPC's dialogue can arrive as a tell, and the bot
+  answered it with "I didn't understand that". It now answers players only.
+
+### Changed
+
+- **The bot keeps itself fully buffed.** When any of its own buffs runs low, it recasts all of
+  them at once, so they wear off together rather than one at a time mid-request. It also moves up
+  to a new tier as soon as it learns one. Endurance, Leadership Mastery, Arcane Enlightenment,
+  Fealty and Aura of Hermetic Link are now part of its own upkeep, matching what long-running buff
+  bots kept on themselves. A line it can't cast is left alone until something changes, so it
+  never spends mana and reagents retrying the same failure.
+- **Every buff chain ends with Leadership and Fealty.** `buff` and `prots` now carry the XP chain
+  like every other keyword.
+- **The web console opens without an access key.** It only ever listened on your own machine, so
+  the key protected nothing that wasn't already protected. The link is now simply
+  `http://127.0.0.1:8347/`, a bookmark keeps working after a restart, and the "needs its access
+  link" screen is gone. The console still refuses any request that doesn't come from your own
+  machine.
+
+### Removed
+
+- **The Refusal range setting.** Reach is now worked out per spell, so there is nothing to set. A
+  saved value from an earlier version is ignored.
+
 ## 0.1.0 — 2026-09-24
 
 First stable release. No code changes since `0.1.0-beta.6.1`; this marks the point at which
