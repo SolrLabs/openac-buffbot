@@ -323,6 +323,10 @@ internal static class DefaultReplies
     // steps is read only for MissingComponents; every other fatal kind reports nothing else.
     internal static string ClosingFailure(CastFailure failure, IReadOnlyList<CastStep>? steps = null)
     {
+        // The plain come-closer reply, never wrapped in "I had to stop: ...".
+        if (failure.Kind == CastFailureKind.OutOfRange)
+            return OutOfRange;
+
         if (failure.Kind == CastFailureKind.MissingComponents)
         {
             if (steps is not { Count: > 0 })
@@ -359,6 +363,8 @@ internal static class DefaultReplies
             CastFailureKind.TooManyFailures => failure.Detail,
             CastFailureKind.NotLearned => $"haven't learned {failure.Line}",
             CastFailureKind.NoShield => "no shield equipped",
+            // Unreachable: OutOfRange returns above before this switch runs.
+            CastFailureKind.OutOfRange => OutOfRange,
             _ => $"couldn't finish {failure.Line}",
         };
         return $"I had to stop: {reason}.";

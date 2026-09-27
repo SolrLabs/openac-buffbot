@@ -154,32 +154,26 @@ public sealed class BuffBotPluginTests
     [Fact]
     public void FirstDistanceForARequesterIsAlwaysWorthTracing()
     {
-        Assert.True(BuffBotPlugin.DistanceTraceIsWorthLogging(30d, inRange: true, lastTraced: null));
+        Assert.True(BuffBotPlugin.DistanceTraceIsWorthLogging(30d, lastTracedMetres: null));
     }
 
     [Fact]
-    public void RepeatingTheSameDistanceAndVerdictIsNotWorthTracingAgain()
+    public void RepeatingTheSameDistanceIsNotWorthTracingAgain()
     {
         // The repeated-identical-line case: an unchanged distance is not worth a line.
-        Assert.False(BuffBotPlugin.DistanceTraceIsWorthLogging(30d, inRange: true, lastTraced: (30d, true)));
+        Assert.False(BuffBotPlugin.DistanceTraceIsWorthLogging(30d, lastTracedMetres: 30d));
     }
 
     [Fact]
     public void ANearlyIdenticalDistanceUnderAMeterIsNotWorthTracingAgain()
     {
-        Assert.False(BuffBotPlugin.DistanceTraceIsWorthLogging(30.4d, inRange: true, lastTraced: (30d, true)));
+        Assert.False(BuffBotPlugin.DistanceTraceIsWorthLogging(30.4d, lastTracedMetres: 30d));
     }
 
     [Fact]
     public void MovingAFullMeterOrMoreIsWorthTracingAgain()
     {
-        Assert.True(BuffBotPlugin.DistanceTraceIsWorthLogging(31d, inRange: true, lastTraced: (30d, true)));
-    }
-
-    [Fact]
-    public void TheInRangeVerdictFlippingIsWorthTracingEvenWithoutMoving()
-    {
-        Assert.True(BuffBotPlugin.DistanceTraceIsWorthLogging(30d, inRange: false, lastTraced: (30d, true)));
+        Assert.True(BuffBotPlugin.DistanceTraceIsWorthLogging(31d, lastTracedMetres: 30d));
     }
 
     /// <summary><c>/buffbot console</c> answers with the link on a UI host too, unlike <see

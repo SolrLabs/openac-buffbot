@@ -58,7 +58,6 @@ internal sealed record MeshPortalTie(string Description, string Direction)
 /// <summary>Field names match <see cref="Settings.BuffBotSettings"/> one for one, camelCased on the way out by <see cref="MeshJson"/>. <see cref="ManaBounceLowWaterFraction"/> and <see cref="ManaBounceHighWaterFraction"/> are the mana bar's draggable handles, fractions of max mana; defaulted so a body from before this pair existed still parses as the 20%/80% it always meant. <see cref="PrimaryPortal"/> and <see cref="SecondaryPortal"/> default to <see langword="null"/> rather than <see cref="MeshPortalTie.Empty"/> when this struct itself is default-constructed — guard with <c>?? MeshPortalTie.Empty</c>, the same guard <see cref="MeshComponents.Items"/> already needs.</summary>
 internal readonly record struct MeshSettings(
     bool SelfBuffUpkeep,
-    double RefusalRangeMeters,
     int RepliesPerSenderPerMinute,
     bool IntakePaused,
     int? TargetTier,

@@ -1465,6 +1465,44 @@ public sealed class CastStateMachineTests
         Assert.Empty(result.Steps); // a fizzle is not a per-spell failure or a landed cast
     }
 
+    /// <summary>A requester's cancel wins over a 1360 landing on the cast already in flight —
+    /// the run stops rather than closing with the out-of-range refusal.</summary>
+    [Fact]
+    public void RequestStopWinsOverAFatal1360LandingOnTheInFlightCast()
+    {
+        var (machine, magic, _, _) = PreparedMachine();
+        machine.Begin([Resolved(family: 10, tier: 1, spellId: 42)], Target, TargetName);
+        magic.Gate = PluginCastGate.Ready;
+
+        Assert.Null(machine.Advance(0, [])); // the cast is now in flight
+        machine.RequestStop(RunStopReason.RequesterCancelled);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 1, SpellId: 42, TargetObjectId: Target, WeenieError: 0x0550);
+        CastRunResult? result = machine.Advance(0.1, []);
+
+        Assert.NotNull(result);
+        Assert.Equal(CastRunOutcome.Stopped, result!.Outcome);
+        Assert.Equal(RunStopReason.RequesterCancelled, result.StopReason);
+    }
+
+    [Fact]
+    public void BotDisablingWinsOverAFatal1360LandingOnTheInFlightCast()
+    {
+        var (machine, magic, _, _) = PreparedMachine();
+        machine.Begin([Resolved(family: 10, tier: 1, spellId: 42)], Target, TargetName);
+        magic.Gate = PluginCastGate.Ready;
+
+        Assert.Null(machine.Advance(0, [])); // the cast is now in flight
+        machine.RequestStop(RunStopReason.BotDisabling);
+
+        magic.LastCompletion = new PluginCastCompletion(Revision: 1, SpellId: 42, TargetObjectId: Target, WeenieError: 0x0550);
+        CastRunResult? result = machine.Advance(0.1, []);
+
+        Assert.NotNull(result);
+        Assert.Equal(CastRunOutcome.Stopped, result!.Outcome);
+        Assert.Equal(RunStopReason.BotDisabling, result.StopReason);
+    }
+
     [Fact]
     public void RemainingPlanExcludesTheLineAlreadyCastAfterAPortalCutIn()
     {

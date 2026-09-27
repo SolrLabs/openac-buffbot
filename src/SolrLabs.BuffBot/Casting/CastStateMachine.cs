@@ -65,6 +65,10 @@ internal enum CastFailureKind
 
     // The caster lacks components for this spell, and no lower tier is left to fall back to.
     MissingComponents,
+
+    // The requester is farther than the spell's own reach: caught either before sending, by the
+    // per-spell gate below, or by the server's own completion error 1360.
+    OutOfRange,
 }
 
 internal static class CastFailureKindExtensions
@@ -77,6 +81,7 @@ internal static class CastFailureKindExtensions
         CastFailureKind.OutOfMana => true,
         CastFailureKind.TooManyFailures => true,
         CastFailureKind.MissingComponents => true,
+        CastFailureKind.OutOfRange => true,
         _ => false,
     };
 }
@@ -210,6 +215,14 @@ internal sealed class CastStateMachine
     // Retail's scarab-only formula for a given school; read live since the carried focus can change
     // mid-run. Null is never scarab-only.
     internal Func<uint, bool>? UsesScarabOnlyFormula { get; set; }
+
+    // Fed fresh every tick by BuffCoordinator.Pump. Null ranks means the skill could not be read.
+    internal Func<uint, uint?>? RanksForSkill { get; set; }
+
+    // Null distance means the target's position is unknown, never that it is far.
+    internal Func<uint, double?>? DistanceToTarget { get; set; }
+
+    private static uint? NoRanksKnown(uint skillId) => null;
 
     private readonly Action<string>? _trace;
     private readonly Action<string>? _warn;
@@ -605,6 +618,19 @@ internal sealed class CastStateMachine
                         }
                     }
 
+                    // Judges the spell actually about to be sent; self-targeted needs no target.
+                    if (!current.Spell.IsSelfTargeted
+                        && DistanceToTarget?.Invoke(EffectiveTarget(current)) is { } distanceToTarget
+                        && distanceToTarget > SpellReach.ForSpell(current.Spell, RanksForSkill ?? NoRanksKnown))
+                    {
+                        if (!HandleSpellFailure(
+                            current,
+                            new CastFailure(CastFailureKind.OutOfRange, current.Line, "too far to cast"),
+                            out CastRunResult? outOfRangeResult))
+                            return outOfRangeResult;
+                        continue;
+                    }
+
                     // _prepared alone isn't trustworthy: a peace return can drop combat mode without
                     // clearing it. _modeRequestSent must reset too, since a pea split returns to peace the same way.
                     if (!_prepared || _combat.Snapshot.Mode != PluginCombatMode.Magic)
@@ -837,10 +863,15 @@ internal sealed class CastStateMachine
                                 continue;
                             }
 
+                            // The server's own range refusal: fatal, and never the generic
+                            // cast-failed wording or its consecutive-failure count.
+                            CastFailureKind kind = completion.WeenieError == WeenieErrorReplies.OutOfRangeCode
+                                ? CastFailureKind.OutOfRange
+                                : CastFailureKind.CastFailed;
                             if (!HandleSpellFailure(
                                 current,
                                 new CastFailure(
-                                    CastFailureKind.CastFailed,
+                                    kind,
                                     current.Line,
                                     WeenieErrorReplies.Describe(completion.WeenieError)),
                                 out CastRunResult? castFailedResult))
@@ -903,7 +934,11 @@ internal sealed class CastStateMachine
     {
         if (failure.Kind.IsFatal())
         {
-            result = Finish(CastRunResult.Failed(_steps, failure));
+            // A pending stop (cancel or disable) wins over a fatal failure landing on the cast
+            // already in flight, same as the top of NotStarted checks it before starting a new one.
+            result = _stopRequested
+                ? Finish(CastRunResult.Stopped(_steps, _stopReason))
+                : Finish(CastRunResult.Failed(_steps, failure));
             return false;
         }
 

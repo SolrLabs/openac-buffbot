@@ -132,20 +132,63 @@ public sealed class BuffCoordinatorTests
         Assert.Equal([DefaultReplies.OutOfRange], replies);
     }
 
-    // -- a settings-driven refusal range ---------------------------------------------------------
+    // -- spell reach --------------------------------------------------------------------------
+
+    // Tier II: constant 5 m, modifier 0.85; ranks 2 -> 5+1.7=6.7, less the 1 m margin = 5.7 m.
+    private const uint BelgarathSchoolId = 31;
+
+    private static PluginSpellInfo[] BelgarathCatalog() =>
+    [
+        Catalog[0],
+        Catalog[1] with { School = BelgarathSchoolId, BaseRangeConstant = 5f, BaseRangeModifier = 0.85f },
+    ];
 
     [Fact]
-    public void ANarrowerRefusalRangeRefusesADistanceTheDefaultWouldHaveAllowed()
+    public void ARequesterJustBeyondTheSpellsOwnReachIsRefusedBeforeAnythingCasts()
     {
         var queue = new RequestQueue(5);
         queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
         var (coordinator, magic, replies) = NewCoordinator(queue);
-        coordinator.RefusalRangeMeters = 40d;
 
         coordinator.Pump(
-            0, Catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
-            distanceToRequester: _ => 50d, // within the 67.5 m default, past the 40 m setting
-            sendReply: (_, _, text) => replies.Add(text));
+            0, BelgarathCatalog(), activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: _ => 6.6d,
+            sendReply: (_, _, text) => replies.Add(text),
+            ranksForSkill: skillId => skillId == BelgarathSchoolId ? 2u : null);
+
+        Assert.Empty(magic.SentSpellIds);
+        Assert.Equal([DefaultReplies.OutOfRange], replies);
+    }
+
+    [Fact]
+    public void ARequesterWellWithinTheSpellsOwnReachProceeds()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue);
+
+        coordinator.Pump(
+            0, BelgarathCatalog(), activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: _ => 2.5d,
+            sendReply: (_, _, text) => replies.Add(text),
+            ranksForSkill: skillId => skillId == BelgarathSchoolId ? 2u : null);
+
+        Assert.Equal([SelfSpellId], magic.SentSpellIds);
+        Assert.Empty(replies);
+    }
+
+    [Fact]
+    public void AnUnreadableSkillFallsBackToTheCapLessTheMargin()
+    {
+        var queue = new RequestQueue(5);
+        queue.TryEnqueue(new BuffRequest(RequesterId, RequesterName, DefaultSpellSets.Buff), out _);
+        var (coordinator, magic, replies) = NewCoordinator(queue);
+
+        coordinator.Pump(
+            0, BelgarathCatalog(), activeEnchantments: [], [], selfBuffingEnabled: true,
+            distanceToRequester: _ => 74.5d, // beyond the 74 m unknown-skill fallback
+            sendReply: (_, _, text) => replies.Add(text),
+            ranksForSkill: static _ => null);
 
         Assert.Empty(magic.SentSpellIds);
         Assert.Equal([DefaultReplies.OutOfRange], replies);
@@ -189,12 +232,6 @@ public sealed class BuffCoordinatorTests
         Assert.Equal(character.CurrentStamina, status.CurrentStamina);
         Assert.Equal(character.MaxStamina, status.MaxStamina);
     }
-
-    [Fact]
-    public void DefaultRefusalRangeMatchesNinetyPercentOfCastRange() =>
-        Assert.Equal(
-            SolrLabs.BuffBot.Policy.RangePolicy.MaxCastRangeMeters * 0.9,
-            NewCoordinator(new RequestQueue(5)).Coordinator.RefusalRangeMeters);
 
     // -- session statistics -----------------------------------------------------------------------
 
@@ -1573,26 +1610,25 @@ public sealed class BuffCoordinatorTests
             distanceToRequester: static _ => 10d, sendReply: (_, _, text) => replies.Add(text)));
         Pump(coordinator, [], enabled: true, replies, catalog: catalog); // sends Quickness Other
 
-        // Archer walks out of range mid-resume; the run is abandoned, never finished.
-        coordinator.Pump(
-            0, catalog, activeEnchantments: [], [], selfBuffingEnabled: true,
-            distanceToRequester: _ => 999d,
-            sendReply: (_, _, text) => replies.Add(text));
+        // Archer walks out of range mid-resume: there is no per-tick distance abandon any more —
+        // the run ends only once the server's own 1360 arrives on the cast already in flight.
+        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: ThirdSpellId, TargetObjectId: RequesterId, WeenieError: 0x0550);
+        Pump(coordinator, [], enabled: true, replies, catalog: catalog);
         Assert.Equal([DefaultReplies.OutOfRange], replies);
         Assert.False(coordinator.HasActiveRequester);
 
         // Rogue is served next; her own count must not include Archer's leftover steps.
         magic.IsCasting = false; // the server's own use-done for Archer's abandoned cast
         Pump(coordinator, [], enabled: true, replies, catalog: catalog); // Rogue: sends Strength Other
-        magic.LastCompletion = new PluginCastCompletion(Revision: 4, SpellId: OtherSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: OtherSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
         Pump(coordinator, [Confirm("Strength Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
-        magic.LastCompletion = new PluginCastCompletion(Revision: 5, SpellId: EnduranceSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 6, SpellId: EnduranceSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
         Pump(coordinator, [Confirm("Endurance Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
-        magic.LastCompletion = new PluginCastCompletion(Revision: 6, SpellId: ThirdSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 7, SpellId: ThirdSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
         Pump(coordinator, [Confirm("Quickness Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
-        magic.LastCompletion = new PluginCastCompletion(Revision: 7, SpellId: FourthSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 8, SpellId: FourthSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
         Pump(coordinator, [Confirm("Coordination Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
-        magic.LastCompletion = new PluginCastCompletion(Revision: 8, SpellId: FifthSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
+        magic.LastCompletion = new PluginCastCompletion(Revision: 9, SpellId: FifthSpellId, TargetObjectId: SecondRequesterId, WeenieError: 0);
         Pump(coordinator, [Confirm("Focus Other I", SecondRequesterName)], enabled: true, replies, catalog: catalog);
 
         Assert.Equal("All set: cast 5 buffs.", replies[^1]);

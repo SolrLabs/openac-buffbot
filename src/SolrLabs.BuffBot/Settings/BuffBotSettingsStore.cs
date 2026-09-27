@@ -37,7 +37,6 @@ internal sealed class BuffBotSettingsStore
     private static string Serialize(BuffBotSettings settings) => new JsonObject
     {
         ["selfBuffUpkeep"] = settings.SelfBuffUpkeep,
-        ["refusalRangeMeters"] = settings.RefusalRangeMeters,
         ["repliesPerSenderPerMinute"] = settings.RepliesPerSenderPerMinute,
         ["intakePaused"] = settings.IntakePaused,
         ["targetTier"] = settings.TargetTier,
@@ -65,9 +64,10 @@ internal sealed class BuffBotSettingsStore
         if (root is null)
             return BuffBotSettings.Default;
 
+        // A stored "refusalRangeMeters" key from before this setting was retired is read by
+        // nothing here — ignored, never an error.
         return new BuffBotSettings(
             OptionalBool(root, "selfBuffUpkeep") ?? BuffBotSettings.DefaultSelfBuffUpkeep,
-            OptionalDouble(root, "refusalRangeMeters") ?? BuffBotSettings.DefaultRefusalRangeMeters,
             OptionalInt(root, "repliesPerSenderPerMinute") ?? BuffBotSettings.DefaultRepliesPerSenderPerMinute,
             OptionalBool(root, "intakePaused") ?? BuffBotSettings.DefaultIntakePaused,
             OptionalInt(root, "targetTier"),

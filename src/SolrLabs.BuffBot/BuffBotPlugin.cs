@@ -383,7 +383,8 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             tradeOpen: tradeOpen,
             facing: _portalFacing,
             tieFor: PortalTieFor,
-            sayLocal: text => host.Automation.Chat.Submit("/say " + text))
+            sayLocal: text => host.Automation.Chat.Submit("/say " + text),
+            ranksForSkill: skillId => RanksForSkill(host, skillId))
             with
             {
                 Settings = _currentSettings,
@@ -672,7 +673,7 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
             : null;
 
         _currentSettings = _currentSettings.WithPatch(
-            patch.SelfBuffUpkeep, patch.RefusalRangeMeters, patch.RepliesPerSenderPerMinute,
+            patch.SelfBuffUpkeep, patch.RepliesPerSenderPerMinute,
             patch.IntakePaused, patch.HasTargetTier, patch.TargetTier, patch.TierFallback,
             patch.FizzlesBeforeSkip, patch.ComponentLowStock,
             patch.ManaBounceLowWaterFraction, patch.ManaBounceHighWaterFraction, patch.SplitPeas,
@@ -808,19 +809,23 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
 
     /// <summary>The last distance traced per requester, so <see cref="DistanceTo"/> logs again
     /// only when something worth reading has changed.</summary>
-    private readonly Dictionary<uint, (double Metres, bool InRange)> _lastTracedDistance = [];
+    private readonly Dictionary<uint, double> _lastTracedDistance = [];
 
-    internal static bool DistanceTraceIsWorthLogging(
-        double metres, bool inRange, (double Metres, bool InRange)? lastTraced) =>
-        lastTraced is not { } last
-        || last.InRange != inRange
-        || Math.Abs(metres - last.Metres) >= 1d;
+    // No single "in range" verdict any more: a spell's own reach varies with the caster's skill,
+    // not a flat setting. Traced on movement alone.
+    internal static bool DistanceTraceIsWorthLogging(double metres, double? lastTracedMetres) =>
+        lastTracedMetres is not { } last || Math.Abs(metres - last) >= 1d;
+
+    /// <summary>The caster's ranks in one magic skill; null when the host cannot state it, never
+    /// when it states zero.</summary>
+    private static uint? RanksForSkill(IPluginHost host, uint skillId) =>
+        host.Automation.Character.TryGetSkill(skillId, out PluginSkillInfo skill) ? skill.Ranks : null;
 
     /// <summary>Horizontal distance, in meters, from the local player to a requester's object,
     /// or <see langword="null"/> if the surface cannot currently place them.</summary>
     private double? DistanceTo(IPluginHost host, uint requesterObjectId)
     {
-        // Null means "cannot tell", never "far" — see BuffCoordinator.IsRequesterInRange.
+        // Null means "cannot tell", never "far" — see BuffCoordinator.IsWithinMinimumReach.
         if (!host.Automation.Objects.TryGet(requesterObjectId, out PluginWorldObject requester))
         {
             host.Log.Info($"distance unknown: object {requesterObjectId} is not in our table");
@@ -844,12 +849,10 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
 
         // A dungeon's cells are a different coordinate frame from the surface landblock, so a
         // horizontal distance across that boundary may be meaningless rather than merely large.
-        bool inRange = RangePolicy.IsInRange(metres);
-        (double Metres, bool InRange)? lastTraced =
-            _lastTracedDistance.TryGetValue(requesterObjectId, out var last) ? last : null;
-        if (DistanceTraceIsWorthLogging(metres, inRange, lastTraced))
+        double? lastTraced = _lastTracedDistance.TryGetValue(requesterObjectId, out var last) ? last : null;
+        if (DistanceTraceIsWorthLogging(metres, lastTraced))
         {
-            _lastTracedDistance[requesterObjectId] = (metres, inRange);
+            _lastTracedDistance[requesterObjectId] = metres;
             host.Log.Info(
                 $"distance to {requesterObjectId}: {metres:F1}m | "
                 + $"self cell {local.Position.CellId:X8} outdoor={local.Position.IsOutdoor} | "
@@ -1373,7 +1376,6 @@ public sealed class BuffBotPlugin : IAcDreamPlugin
         _guard.SetMaxRequestsPerWindow(_currentSettings.RepliesPerSenderPerMinute);
         if (_coordinator is not null)
         {
-            _coordinator.RefusalRangeMeters = _currentSettings.RefusalRangeMeters;
             // Read at Begin/TryStart, never mid-run, so a change lands on the next run, not this
             // one.
             _coordinator.TargetTier = _currentSettings.TargetTier;

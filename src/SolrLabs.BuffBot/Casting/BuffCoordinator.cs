@@ -86,16 +86,8 @@ internal sealed class BuffCoordinator
     // Watched independently of the idle backoff above.
     private IReadOnlyList<ComponentUsage>? _componentStockAtCeilingSet;
 
-    private double _refusalRangeMeters = RangePolicy.MaxCastRangeMeters * 0.9;
-
-    internal double RefusalRangeMeters
-    {
-        get => _refusalRangeMeters;
-        set => _refusalRangeMeters = value;
-    }
-
-    // Zero here, unlike RefusalRangeMeters above: a bare coordinator gets no pause unless a
-    // caller opts in; the settings-driven default is synced in every tick instead.
+    // Zero here: a bare coordinator gets no pause unless a caller opts in; the settings-driven
+    // default is synced in every tick instead.
     private double _queuePauseSeconds;
 
     internal double QueuePauseSeconds
@@ -200,13 +192,19 @@ internal sealed class BuffCoordinator
         bool tradeOpen = false,
         IPortalFacing? facing = null,
         Func<PortalTieSlot, PortalTie>? tieFor = null,
-        Action<string>? sayLocal = null)
+        Action<string>? sayLocal = null,
+        Func<uint, uint?>? ranksForSkill = null)
     {
         IReadOnlyList<MutedEntry> mutedEntries = muted ?? Array.Empty<MutedEntry>();
         IReadOnlyList<PluginWorldObject> objects = capturedObjects ?? Array.Empty<PluginWorldObject>();
+        Func<uint, uint?> ranks = ranksForSkill ?? UnknownRanks;
 
         // Fed fresh every tick, unlike the next-run-only settings above.
         _caster.UsesScarabOnlyFormula = usesScarabOnlyFormula;
+        // Same delegate as distanceToRequester below: CastStateMachine's own per-spell range gate
+        // asks it for the plan's own target, never a second host call of its own.
+        _caster.RanksForSkill = ranks;
+        _caster.DistanceToTarget = distanceToRequester;
 
         if (_idleComponentBackoffActive
             && components is { Available: true } freshReport
@@ -269,7 +267,7 @@ internal sealed class BuffCoordinator
         }
         else if (_portalLane.Count == 0 && IsInterrupted)
         {
-            ResumeSuspended(distanceToRequester, sendReply);
+            ResumeSuspended(distanceToRequester, sendReply, ranks);
         }
 
         if (_current is null && !_isIdleSelfBuffRun && !_isIdleTopUp && !IsInterrupted)
@@ -307,7 +305,7 @@ internal sealed class BuffCoordinator
                     _toppingUpBeforeNext = true;
                     _caster.BeginTopUp(ManaUpkeepPlan(catalog));
                 }
-                else if (!TryStart(next, catalog, activeEnchantments, distanceToRequester, sendReply, objects))
+                else if (!TryStart(next, catalog, activeEnchantments, distanceToRequester, sendReply, objects, ranks))
                 {
                     return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
                 }
@@ -319,16 +317,9 @@ internal sealed class BuffCoordinator
                 return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
             }
         }
-        else if (!_toppingUpBeforeNext
-            && _current is { } inProgress
-            && !IsRequesterInRange(inProgress, distanceToRequester))
-        {
-            // Told once and the run ends there; idle self-buff and a pending top-up never reach here.
-            _caster.Cancel();
-            Abandon(inProgress, DefaultReplies.OutOfRange, RefusalReason.OutOfRange, sendReply);
-            return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
-        }
 
+        // No per-tick distance re-check on a run already in flight: the caster's own per-spell
+        // gate, and the server's own 1360, are what end it if the requester truly left.
         CastRunResult? result = _caster.Advance(deltaSeconds, chatMessages);
         if (result is null)
             return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
@@ -337,7 +328,7 @@ internal sealed class BuffCoordinator
         {
             // TryStart re-checks range and re-resolves the spell set fresh at this moment.
             _toppingUpBeforeNext = false;
-            TryStart(_current!.Value, catalog, activeEnchantments, distanceToRequester, sendReply, objects);
+            TryStart(_current!.Value, catalog, activeEnchantments, distanceToRequester, sendReply, objects, ranks);
             return BuildStatus(selfBuffingEnabled, tellsAnswered, mutedEntries);
         }
 
@@ -390,6 +381,11 @@ internal sealed class BuffCoordinator
             _stats.RecordPlayerServed(finished.RequesterObjectId);
             ClearComponentBackoff("a request landed a cast");
         }
+
+        // Never through Abandon: a landed step above stays counted, and this fatal kind is never
+        // part of the consecutive-failure count.
+        if (result is { Outcome: CastRunOutcome.Failed, Failure: { Kind: CastFailureKind.OutOfRange } })
+            _stats.RecordRefusal(RefusalReason.OutOfRange, finished.RequesterName);
 
         string closing = result.Outcome switch
         {
@@ -546,7 +542,8 @@ internal sealed class BuffCoordinator
         IReadOnlyList<PluginActiveEnchantment> activeEnchantments,
         Func<uint, double?> distanceToRequester,
         Action<uint, string, string> sendReply,
-        IReadOnlyList<PluginWorldObject> capturedObjects)
+        IReadOnlyList<PluginWorldObject> capturedObjects,
+        Func<uint, uint?> ranksForSkill)
     {
         // Mana is about to move, so an idle top-up gets to try fresh next time the queue empties.
         _idleTopUpAttempted = false;
@@ -554,12 +551,6 @@ internal sealed class BuffCoordinator
         if (IsRequesterGone(request.RequesterObjectId, distanceToRequester, capturedObjects))
         {
             Abandon(request, DefaultReplies.RequesterGone, RefusalReason.Unresolvable, sendReply);
-            return false;
-        }
-
-        if (!IsRequesterInRange(request, distanceToRequester))
-        {
-            Abandon(request, DefaultReplies.OutOfRange, RefusalReason.OutOfRange, sendReply);
             return false;
         }
 
@@ -589,6 +580,14 @@ internal sealed class BuffCoordinator
 
         // Reorders so buffs the requester can most afford to lose expire first, the ones keeping them alive last.
         IReadOnlyList<ResolvedSpell> orderedPlan = SurvivalOrder.Apply(selection.Plan, _trace);
+
+        // The shortest reach among this run's own Other lines; moved past selection so the
+        // resolved plan is what the check judges, not the raw profile.
+        if (!IsWithinMinimumReach(orderedPlan, request.RequesterObjectId, distanceToRequester, ranksForSkill))
+        {
+            Abandon(request, DefaultReplies.OutOfRange, RefusalReason.OutOfRange, sendReply);
+            return false;
+        }
 
         // Best effort: an untrained self line doesn't block the rest, unlike the requester's own line above.
         IReadOnlyList<ResolvedSpell> selfDue =
@@ -676,7 +675,8 @@ internal sealed class BuffCoordinator
     // Re-checks range exactly as a fresh request does; out of range gives the same abandon.
     // Begins on the same mana upkeep plan the original run had, so a shortfall still bounces.
     internal bool ResumeSuspended(
-        Func<uint, double?> distanceToRequester, Action<uint, string, string> sendReply)
+        Func<uint, double?> distanceToRequester, Action<uint, string, string> sendReply,
+        Func<uint, uint?>? ranksForSkill = null)
     {
         if (_suspendedRun is not { } suspended)
             return false;
@@ -694,7 +694,10 @@ internal sealed class BuffCoordinator
             return true;
         }
 
-        if (!IsRequesterInRange(suspended.Request, distanceToRequester))
+        // The min over the remaining Other spells; no check at all if none are left.
+        if (!IsWithinMinimumReach(
+            suspended.Remaining, suspended.Request.RequesterObjectId, distanceToRequester,
+            ranksForSkill ?? UnknownRanks))
         {
             Abandon(suspended.Request, DefaultReplies.OutOfRange, RefusalReason.OutOfRange, sendReply);
             return true;
@@ -750,12 +753,34 @@ internal sealed class BuffCoordinator
     private IReadOnlyList<ResolvedSpell> ManaUpkeepPlan(IReadOnlyList<PluginSpellInfo> catalog) =>
         SpellSelector.ResolveLenient(catalog, _manaUpkeepLines, SpellTargetKind.Self);
 
-    /// <summary>A null distance means the requester's position could not be determined, not that
-    /// they are too far away; the server enforces range either way.</summary>
-    private bool IsRequesterInRange(BuffRequest request, Func<uint, double?> distanceToRequester)
+    /// <summary>Never returns <see langword="null"/>: <see cref="Pump"/> always supplies one,
+    /// falling back to this when the caller (mostly a test) supplies none.</summary>
+    private static uint? UnknownRanks(uint skillId) => null;
+
+    /// <summary>The shortest reach among <paramref name="otherSpells"/>'s own non-self lines,
+    /// compared against the requester's distance; an empty or all-self plan is never refused.</summary>
+    private static bool IsWithinMinimumReach(
+        IReadOnlyList<ResolvedSpell> otherSpells,
+        uint requesterObjectId,
+        Func<uint, double?> distanceToRequester,
+        Func<uint, uint?> ranksForSkill)
     {
-        double? distance = distanceToRequester(request.RequesterObjectId);
-        return distance is null || RangePolicy.IsInRange(distance.Value, _refusalRangeMeters);
+        double? minReachMetres = null;
+        foreach (ResolvedSpell resolved in otherSpells)
+        {
+            if (resolved.Spell.IsSelfTargeted)
+                continue;
+
+            double reach = SpellReach.ForSpell(resolved.Spell, ranksForSkill);
+            if (minReachMetres is null || reach < minReachMetres.Value)
+                minReachMetres = reach;
+        }
+
+        if (minReachMetres is null)
+            return true;
+
+        double? distance = distanceToRequester(requesterObjectId);
+        return distance is null || distance.Value <= minReachMetres.Value;
     }
 
     /// <summary>True only once the distance is already unknown and a non-empty capture is
@@ -854,8 +879,10 @@ internal sealed class BuffCoordinator
     {
         PortalRequest next = _portalLane.Dequeue();
 
+        // A fixed 90% of cast range (RangePolicy's own default): a summon has no target, so the
+        // per-spell reach a buff line uses does not apply here.
         double? distance = distanceToRequester(next.RequesterObjectId);
-        if (distance is not null && !RangePolicy.IsInRange(distance.Value, _refusalRangeMeters))
+        if (distance is not null && !RangePolicy.IsInRange(distance.Value))
         {
             _portalTracked.Remove(next.RequesterObjectId);
             sendReply(next.RequesterObjectId, next.RequesterName, DefaultReplies.OutOfRange);

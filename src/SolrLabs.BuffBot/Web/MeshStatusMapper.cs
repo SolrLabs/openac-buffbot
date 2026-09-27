@@ -66,7 +66,7 @@ internal static class MeshStatusMapper
             meshStats,
             recent,
             new MeshSettings(
-                settings.SelfBuffUpkeep, settings.RefusalRangeMeters, settings.RepliesPerSenderPerMinute,
+                settings.SelfBuffUpkeep, settings.RepliesPerSenderPerMinute,
                 settings.IntakePaused, settings.TargetTier, settings.TierFallback, settings.FizzlesBeforeSkip,
                 settings.ComponentLowStock, settings.ManaBounceLowWaterFraction, settings.ManaBounceHighWaterFraction,
                 settings.SplitPeas, PortalTieObject(settings.PrimaryPortal), PortalTieObject(settings.SecondaryPortal),

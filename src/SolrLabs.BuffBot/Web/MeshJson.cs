@@ -108,7 +108,6 @@ internal static class MeshJson
             ["settings"] = new JsonObject
             {
                 ["selfBuffUpkeep"] = status.Settings.SelfBuffUpkeep,
-                ["refusalRangeMeters"] = status.Settings.RefusalRangeMeters,
                 ["repliesPerSenderPerMinute"] = status.Settings.RepliesPerSenderPerMinute,
                 ["intakePaused"] = status.Settings.IntakePaused,
                 ["targetTier"] = status.Settings.TargetTier,
@@ -262,7 +261,6 @@ internal static class MeshJson
     {
         var json = new JsonObject();
         if (patch.SelfBuffUpkeep is { } selfBuffUpkeep) json["selfBuffUpkeep"] = selfBuffUpkeep;
-        if (patch.RefusalRangeMeters is { } refusalRangeMeters) json["refusalRangeMeters"] = refusalRangeMeters;
         if (patch.RepliesPerSenderPerMinute is { } replies) json["repliesPerSenderPerMinute"] = replies;
         if (patch.IntakePaused is { } intakePaused) json["intakePaused"] = intakePaused;
         if (patch.HasTargetTier) json["targetTier"] = patch.TargetTier;
@@ -395,8 +393,9 @@ internal static class MeshJson
     /// <summary>Every present field must be the right type, or the whole patch is rejected. Clamping to the settings model's own bounds happens afterwards, in <see cref="Settings.BuffBotSettings.WithPatch"/>, not here.</summary>
     private static MeshSettingsPatch? TryParseSettingsPatch(JsonObject root)
     {
+        // A legacy "refusalRangeMeters" key, from before this setting was retired, is ignored
+        // here, not validated: any shape it arrives in leaves the rest of the patch alone.
         if (!TryOptionalBool(root, "selfBuffUpkeep", out bool? selfBuffUpkeep)) return null;
-        if (!TryOptionalDouble(root, "refusalRangeMeters", out double? refusalRangeMeters)) return null;
         if (!TryOptionalInt(root, "repliesPerSenderPerMinute", out int? repliesPerSenderPerMinute)) return null;
         if (!TryOptionalBool(root, "intakePaused", out bool? intakePaused)) return null;
         if (!TryOptionalNullableInt(root, "targetTier", out bool hasTargetTier, out int? targetTier)) return null;
@@ -411,7 +410,7 @@ internal static class MeshJson
         if (!TryOptionalDouble(root, "queuePauseSeconds", out double? queuePauseSeconds)) return null;
 
         return new MeshSettingsPatch(
-            selfBuffUpkeep, refusalRangeMeters, repliesPerSenderPerMinute, intakePaused,
+            selfBuffUpkeep, repliesPerSenderPerMinute, intakePaused,
             hasTargetTier, targetTier, tierFallback, fizzlesBeforeSkip, componentLowStock,
             manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas, primaryPortal, secondaryPortal,
             queuePauseSeconds);
@@ -462,7 +461,7 @@ internal static class MeshJson
         if (!root.TryGetPropertyValue("settings", out JsonNode? settingsNode) || settingsNode is not JsonObject settingsObject)
             return null;
         if (!TryBool(settingsObject, "selfBuffUpkeep", out bool selfBuffUpkeep)) return null;
-        if (!TryDouble(settingsObject, "refusalRangeMeters", out double refusalRangeMeters)) return null;
+        // "refusalRangeMeters", a retired setting, is optional and read by nothing here.
         if (!TryInt(settingsObject, "repliesPerSenderPerMinute", out int repliesPerSenderPerMinute)) return null;
         if (!TryBool(settingsObject, "intakePaused", out bool intakePaused)) return null;
         int? targetTier = OptionalInt(settingsObject, "targetTier");
@@ -527,7 +526,7 @@ internal static class MeshJson
             new MeshCounters(tells, casts, fizzles, bounces, stepDowns),
             stats, recent,
             new MeshSettings(
-                selfBuffUpkeep, refusalRangeMeters, repliesPerSenderPerMinute, intakePaused,
+                selfBuffUpkeep, repliesPerSenderPerMinute, intakePaused,
                 targetTier, tierFallback, fizzlesBeforeSkip, componentLowStock,
                 manaBounceLowWaterFraction, manaBounceHighWaterFraction, splitPeas,
                 primaryPortal, secondaryPortal, queuePauseSeconds),

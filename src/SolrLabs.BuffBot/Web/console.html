@@ -1175,16 +1175,6 @@ footer {
         </div>
 
         <div class="field">
-          <label for="range">Refusal range</label>
-          <div class="rangerow">
-            <input type="range" id="range" min="40" max="75" step="0.5" value="67.5">
-            <span class="rangeval" id="range-val">67.5 m</span>
-          </div>
-          <span class="cmd-result" id="range-result"></span>
-          <p>90% of the server's own 75 m cast range, clamped 40-75. The buffer is for a requester drifting out between the ask and the cast.</p>
-        </div>
-
-        <div class="field">
           <label for="rate">Replies per sender</label>
           <div class="rangerow">
             <input type="range" id="rate" min="2" max="20" step="1" value="12">
@@ -1774,15 +1764,6 @@ footer {
     postSettings({ splitPeas: splitPeas.checked }, splitPeas, document.getElementById("splitpeas-result"));
   });
 
-  var range = document.getElementById("range");
-  var rangeVal = document.getElementById("range-val");
-  range.addEventListener("input", function () {
-    rangeVal.textContent = Number(range.value).toFixed(1) + " m";
-  });
-  range.addEventListener("change", function () {
-    postSettings({ refusalRangeMeters: Number(range.value) }, range, document.getElementById("range-result"));
-  });
-
   var rate = document.getElementById("rate");
   var rateVal = document.getElementById("rate-val");
   rate.addEventListener("input", function () {
@@ -1876,7 +1857,7 @@ footer {
   // below reads it immediately, at startup, not from inside a function called later, so it has
   // to already be assigned by the time this line runs, not merely hoisted.
   var BuffBotSettingsDefaults = {
-    fizzlesBeforeSkip: 6, refusalRangeMeters: 67.5, repliesPerSenderPerMinute: 12, componentLowStock: 25,
+    fizzlesBeforeSkip: 6, repliesPerSenderPerMinute: 12, componentLowStock: 25,
     manaBounceLowWaterFraction: 0.20, manaBounceHighWaterFraction: 0.80, queuePauseSeconds: 7,
   };
 
@@ -1987,10 +1968,6 @@ footer {
     });
     setIfNotActive(selfBuff, function () { selfBuff.checked = !!settings.selfBuffUpkeep; });
     setIfNotActive(splitPeas, function () { splitPeas.checked = settings.splitPeas !== false; });
-    setIfNotActive(range, function () {
-      range.value = settings.refusalRangeMeters || BuffBotSettingsDefaults.refusalRangeMeters;
-      rangeVal.textContent = Number(range.value).toFixed(1) + " m";
-    });
     setIfNotActive(rate, function () {
       rate.value = settings.repliesPerSenderPerMinute || BuffBotSettingsDefaults.repliesPerSenderPerMinute;
       rateVal.textContent = rate.value + " / 60s";

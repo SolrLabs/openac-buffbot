@@ -24,7 +24,6 @@ public sealed class HeadlessRelogPersistenceTests : IDisposable
     {
         BuffBotSettings saved = BuffBotSettings.Default with
         {
-            RefusalRangeMeters = 40d,
             RepliesPerSenderPerMinute = 4,
             IntakePaused = true,
         };

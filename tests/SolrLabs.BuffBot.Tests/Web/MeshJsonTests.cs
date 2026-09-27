@@ -29,7 +29,7 @@ public sealed class MeshJsonTests
         Stats: MeshStats.Empty,
         Recent: Array.Empty<MeshRecentEvent>(),
         Settings: new MeshSettings(
-            true, 67.5, 12, false, null, true, 6, 25, 0.20, 0.80, true,
+            true, 12, false, null, true, 6, 25, 0.20, 0.80, true,
             new MeshPortalTie("Temple of Enlightenment", "right"), new MeshPortalTie("Holtburg", "behind")),
         Components: new MeshComponents(true, [new MeshComponentItem(5000, "Tiger Eye Agate", 24, 2)]),
         CurrentHealth: 800u,
@@ -78,7 +78,7 @@ public sealed class MeshJsonTests
 
         JsonObject settings = Assert.IsType<JsonObject>(json["settings"]);
         Assert.True(settings["selfBuffUpkeep"]!.GetValue<bool>());
-        Assert.Equal(67.5, settings["refusalRangeMeters"]!.GetValue<double>());
+        Assert.False(settings.ContainsKey("refusalRangeMeters"));
         Assert.Equal(12, settings["repliesPerSenderPerMinute"]!.GetValue<int>());
         Assert.False(settings["intakePaused"]!.GetValue<bool>());
         Assert.True(settings.ContainsKey("targetTier"));
@@ -259,7 +259,6 @@ public sealed class MeshJsonTests
     [InlineData("{}")]
     [InlineData("{\"kind\":\"settings\"}")] // missing the settings object
     [InlineData("{\"kind\":\"settings\",\"settings\":\"nope\"}")] // settings is not an object
-    [InlineData("{\"kind\":\"settings\",\"settings\":{\"refusalRangeMeters\":\"far\"}}")] // wrong type
     [InlineData("{\"kind\":\"settings\",\"settings\":{\"targetTier\":\"four\"}}")] // wrong type, nullable field
     [InlineData("{\"kind\":\"settings\",\"settings\":{\"manaBounceLowWaterFraction\":\"low\"}}")] // wrong type
     public void RejectsAMalformedCommandBody(string json) => Assert.Null(MeshJson.TryParseCommand(json));
@@ -284,10 +283,21 @@ public sealed class MeshJsonTests
         Assert.Equal(MeshCommandKind.Settings, command!.Kind);
         MeshSettingsPatch patch = command.Settings!;
         Assert.Equal(false, patch.SelfBuffUpkeep);
-        Assert.Null(patch.RefusalRangeMeters);
         Assert.True(patch.HasTargetTier);
         Assert.Equal(4, patch.TargetTier);
         Assert.Null(patch.TierFallback);
+    }
+
+    /// <summary>The refusal-range setting was retired; a legacy console still sending the key
+    /// never rejects the whole patch, whatever shape the value arrives in.</summary>
+    [Fact]
+    public void ALegacyRefusalRangeMetersKeyInASettingsPatchIsIgnored()
+    {
+        MeshCommand? command = MeshJson.TryParseCommand(
+            "{\"kind\":\"settings\",\"settings\":{\"refusalRangeMeters\":\"far\",\"selfBuffUpkeep\":false}}");
+
+        Assert.NotNull(command);
+        Assert.Equal(false, command!.Settings!.SelfBuffUpkeep);
     }
 
     [Fact]
@@ -383,7 +393,7 @@ public sealed class MeshJsonTests
     public void SettingsCommandRoundTripsThroughTheHeartbeatResponse()
     {
         var patch = new MeshSettingsPatch(
-            SelfBuffUpkeep: null, RefusalRangeMeters: 50d, RepliesPerSenderPerMinute: 8,
+            SelfBuffUpkeep: null, RepliesPerSenderPerMinute: 8,
             IntakePaused: true, HasTargetTier: true, TargetTier: null, TierFallback: false,
             FizzlesBeforeSkip: 4, ComponentLowStock: 500,
             ManaBounceLowWaterFraction: 0.3, ManaBounceHighWaterFraction: 0.9);

@@ -16,6 +16,10 @@ internal static class WeenieErrorReplies
     internal const string OutOfRange = // MissileOutOfRange (0x550), sent for targeted spells too
         "you moved out of range while I was casting";
 
+    // The only other code CastStateMachine reads beyond plain text: a completion carrying this
+    // means the server itself refused the cast for being out of range.
+    internal const uint OutOfRangeCode = 0x0550;
+
     internal const string SpellNotKnown = // MagicInvalidSpellType (0x3FC): not in the caster's spellbook
         "I don't actually know that spell anymore";
 

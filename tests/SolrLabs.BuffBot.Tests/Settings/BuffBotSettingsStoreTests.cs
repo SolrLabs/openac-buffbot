@@ -20,7 +20,6 @@ public sealed class BuffBotSettingsStoreTests
         var saved = BuffBotSettings.Default with
         {
             SelfBuffUpkeep = false,
-            RefusalRangeMeters = 50d,
             RepliesPerSenderPerMinute = 8,
             IntakePaused = true,
             TargetTier = 3,
@@ -85,15 +84,27 @@ public sealed class BuffBotSettingsStoreTests
         Assert.Equal(BuffBotSettings.Default, new BuffBotSettingsStore(storage).Load(1234));
     }
 
+    /// <summary>The refusal-range setting was retired; a stored value from before that is read by
+    /// nothing, never an error, whatever shape it arrives in.</summary>
     [Fact]
-    public void AWrongTypedFieldFallsBackToItsDefaultRatherThanThrowing()
+    public void ALegacyRefusalRangeMetersKeyIsIgnoredOnLoad()
+    {
+        var storage = new FakeStorage();
+        storage.WriteText("settings/1234", "{\"refusalRangeMeters\":1000,\"repliesPerSenderPerMinute\":8}");
+
+        BuffBotSettings loaded = new BuffBotSettingsStore(storage).Load(1234);
+
+        Assert.Equal(8, loaded.RepliesPerSenderPerMinute);
+    }
+
+    [Fact]
+    public void AMalformedLegacyRefusalRangeMetersKeyStillLoadsEverythingElse()
     {
         var storage = new FakeStorage();
         storage.WriteText("settings/1234", "{\"refusalRangeMeters\":\"not a number\",\"repliesPerSenderPerMinute\":8}");
 
         BuffBotSettings loaded = new BuffBotSettingsStore(storage).Load(1234);
 
-        Assert.Equal(BuffBotSettings.DefaultRefusalRangeMeters, loaded.RefusalRangeMeters);
         Assert.Equal(8, loaded.RepliesPerSenderPerMinute);
     }
 
@@ -101,11 +112,10 @@ public sealed class BuffBotSettingsStoreTests
     public void AnOutOfRangeStoredValueClampsRatherThanThrowing()
     {
         var storage = new FakeStorage();
-        storage.WriteText("settings/1234", "{\"refusalRangeMeters\":1000,\"fizzlesBeforeSkip\":0}");
+        storage.WriteText("settings/1234", "{\"fizzlesBeforeSkip\":0}");
 
         BuffBotSettings loaded = new BuffBotSettingsStore(storage).Load(1234);
 
-        Assert.Equal(75d, loaded.RefusalRangeMeters);
         Assert.Equal(1, loaded.FizzlesBeforeSkip);
     }
 

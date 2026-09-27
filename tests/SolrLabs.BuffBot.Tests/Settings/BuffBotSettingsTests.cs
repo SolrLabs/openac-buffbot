@@ -11,7 +11,6 @@ public sealed class BuffBotSettingsTests
         BuffBotSettings settings = BuffBotSettings.Default;
 
         Assert.True(settings.SelfBuffUpkeep);
-        Assert.Equal(67.5, settings.RefusalRangeMeters);
         Assert.Equal(12, settings.RepliesPerSenderPerMinute);
         Assert.False(settings.IntakePaused);
         Assert.Null(settings.TargetTier);
@@ -23,15 +22,6 @@ public sealed class BuffBotSettingsTests
         Assert.Equal(PortalTie.Empty, settings.PrimaryPortal);
         Assert.Equal(PortalTie.Empty, settings.SecondaryPortal);
     }
-
-    [Theory]
-    [InlineData(0d, 40d)]
-    [InlineData(39.9, 40d)]
-    [InlineData(40d, 40d)]
-    [InlineData(75d, 75d)]
-    [InlineData(100d, 75d)]
-    public void ClampedBoundsTheRefusalRange(double stored, double expected) =>
-        Assert.Equal(expected, (BuffBotSettings.Default with { RefusalRangeMeters = stored }).Clamped().RefusalRangeMeters);
 
     [Theory]
     [InlineData(0d, 5d)]
@@ -90,7 +80,6 @@ public sealed class BuffBotSettingsTests
     {
         var garbage = new BuffBotSettings(
             SelfBuffUpkeep: false,
-            RefusalRangeMeters: double.MaxValue,
             RepliesPerSenderPerMinute: int.MinValue,
             IntakePaused: true,
             TargetTier: int.MaxValue,
@@ -104,7 +93,6 @@ public sealed class BuffBotSettingsTests
 
         BuffBotSettings clamped = garbage.Clamped();
 
-        Assert.Equal(75d, clamped.RefusalRangeMeters);
         Assert.Equal(2, clamped.RepliesPerSenderPerMinute);
         Assert.Equal(8, clamped.TargetTier);
         Assert.Equal(1, clamped.FizzlesBeforeSkip);
@@ -171,7 +159,6 @@ public sealed class BuffBotSettingsTests
     {
         BuffBotSettings updated = BuffBotSettings.Default.WithPatch(
             selfBuffUpkeep: false,
-            refusalRangeMeters: null,
             repliesPerSenderPerMinute: null,
             intakePaused: null,
             hasTargetTier: false,
@@ -180,7 +167,6 @@ public sealed class BuffBotSettingsTests
             fizzlesBeforeSkip: null);
 
         Assert.False(updated.SelfBuffUpkeep);
-        Assert.Equal(BuffBotSettings.Default.RefusalRangeMeters, updated.RefusalRangeMeters);
         Assert.Equal(BuffBotSettings.Default.RepliesPerSenderPerMinute, updated.RepliesPerSenderPerMinute);
         Assert.Equal(BuffBotSettings.Default.TierFallback, updated.TierFallback);
     }
@@ -189,15 +175,15 @@ public sealed class BuffBotSettingsTests
     public void WithPatchSettingTargetTierToNullIsDifferentFromLeavingItAlone()
     {
         BuffBotSettings withTier = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: true, targetTier: 4, null, null);
+            null, null, null, hasTargetTier: true, targetTier: 4, null, null);
         Assert.Equal(4, withTier.TargetTier);
 
         BuffBotSettings backToTopLearned = withTier.WithPatch(
-            null, null, null, null, hasTargetTier: true, targetTier: null, null, null);
+            null, null, null, hasTargetTier: true, targetTier: null, null, null);
         Assert.Null(backToTopLearned.TargetTier);
 
         BuffBotSettings leftAlone = withTier.WithPatch(
-            null, null, null, null, hasTargetTier: false, targetTier: null, null, null);
+            null, null, null, hasTargetTier: false, targetTier: null, null, null);
         Assert.Equal(4, leftAlone.TargetTier);
     }
 
@@ -205,20 +191,20 @@ public sealed class BuffBotSettingsTests
     public void WithPatchClampsTheResult()
     {
         BuffBotSettings updated = BuffBotSettings.Default.WithPatch(
-            null, refusalRangeMeters: 1000d, null, null, hasTargetTier: false, null, null, null);
+            null, null, null, hasTargetTier: false, null, null, null, componentLowStock: 50000);
 
-        Assert.Equal(75d, updated.RefusalRangeMeters);
+        Assert.Equal(BuffBotSettings.MaxComponentLowStock, updated.ComponentLowStock);
     }
 
     [Fact]
     public void WithPatchLeavesComponentLowStockAloneWhenAbsentAndChangesItWhenPresent()
     {
         BuffBotSettings left = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null, componentLowStock: null);
+            null, null, null, hasTargetTier: false, null, null, null, componentLowStock: null);
         Assert.Equal(BuffBotSettings.DefaultComponentLowStock, left.ComponentLowStock);
 
         BuffBotSettings changed = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null, componentLowStock: 500);
+            null, null, null, hasTargetTier: false, null, null, null, componentLowStock: 500);
         Assert.Equal(500, changed.ComponentLowStock);
     }
 
@@ -226,13 +212,13 @@ public sealed class BuffBotSettingsTests
     public void WithPatchLeavesManaBounceFractionsAloneWhenAbsentAndChangesThemWhenPresent()
     {
         BuffBotSettings left = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null,
+            null, null, null, hasTargetTier: false, null, null, null,
             componentLowStock: null, manaBounceLowWaterFraction: null, manaBounceHighWaterFraction: null);
         Assert.Equal(BuffBotSettings.DefaultManaBounceLowWaterFraction, left.ManaBounceLowWaterFraction);
         Assert.Equal(BuffBotSettings.DefaultManaBounceHighWaterFraction, left.ManaBounceHighWaterFraction);
 
         BuffBotSettings changed = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null,
+            null, null, null, hasTargetTier: false, null, null, null,
             componentLowStock: null, manaBounceLowWaterFraction: 0.3, manaBounceHighWaterFraction: 0.9);
         Assert.Equal(0.3, changed.ManaBounceLowWaterFraction);
         Assert.Equal(0.9, changed.ManaBounceHighWaterFraction);
@@ -242,7 +228,7 @@ public sealed class BuffBotSettingsTests
     public void WithPatchClampsAManaBounceFractionThatWouldCloseTheGapTooFar()
     {
         BuffBotSettings changed = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null,
+            null, null, null, hasTargetTier: false, null, null, null,
             componentLowStock: null, manaBounceLowWaterFraction: 0.5, manaBounceHighWaterFraction: 0.52);
 
         Assert.Equal(0.5, changed.ManaBounceLowWaterFraction);
@@ -255,13 +241,13 @@ public sealed class BuffBotSettingsTests
         Assert.True(BuffBotSettings.Default.SplitPeas);
 
         BuffBotSettings left = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null,
+            null, null, null, hasTargetTier: false, null, null, null,
             componentLowStock: null, manaBounceLowWaterFraction: null, manaBounceHighWaterFraction: null,
             splitPeas: null);
         Assert.True(left.SplitPeas);
 
         BuffBotSettings changed = BuffBotSettings.Default.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null,
+            null, null, null, hasTargetTier: false, null, null, null,
             componentLowStock: null, manaBounceLowWaterFraction: null, manaBounceHighWaterFraction: null,
             splitPeas: false);
         Assert.False(changed.SplitPeas);
@@ -277,13 +263,13 @@ public sealed class BuffBotSettingsTests
         };
 
         BuffBotSettings left = tied.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null,
+            null, null, null, hasTargetTier: false, null, null, null,
             primaryPortal: null, secondaryPortal: null);
         Assert.Equal(tied.PrimaryPortal, left.PrimaryPortal);
         Assert.Equal(tied.SecondaryPortal, left.SecondaryPortal);
 
         BuffBotSettings changed = tied.WithPatch(
-            null, null, null, null, hasTargetTier: false, null, null, null,
+            null, null, null, hasTargetTier: false, null, null, null,
             primaryPortal: new PortalTie("Shoushi", PortalDirection.Behind), secondaryPortal: null);
         Assert.Equal(new PortalTie("Shoushi", PortalDirection.Behind), changed.PrimaryPortal);
         Assert.Equal(tied.SecondaryPortal, changed.SecondaryPortal);
